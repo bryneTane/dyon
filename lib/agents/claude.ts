@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { query, type EffortLevel, type Options } from "@anthropic-ai/claude-agent-sdk";
 import type { CompetitorSpec } from "@/lib/domain/types";
 import { errorText } from "@/lib/domain/text";
 import { agentEnv, relativePath, type Workspace } from "@/lib/server/workspace";
@@ -19,7 +19,7 @@ export function claudeOptions(
     cwd: ws.dir,
     resume,
     model: spec.model,
-    ...(spec.effort ? { effort: spec.effort } : {}),
+    ...(spec.effort ? { effort: spec.effort as EffortLevel } : {}),
     abortController,
     // No user, project or local settings from the developer's machine.
     settingSources: [],
@@ -30,6 +30,7 @@ export function claudeOptions(
     maxBudgetUsd: 5,
     env: agentEnv(ws, {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+      // Where Claude Code keeps its configuration and transcripts (named in the SDK's own type docs): one per run.
       CLAUDE_CONFIG_DIR: join(ws.home, ".claude"),
     }),
   };

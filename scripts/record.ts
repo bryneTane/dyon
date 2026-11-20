@@ -6,7 +6,8 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { claudeOptions } from "@/lib/agents/claude";
-import { DEFAULT_COMPETITORS } from "@/lib/domain/catalog";
+import { defaultCompetitors } from "@/lib/domain/catalog";
+import { loadCatalog } from "@/lib/server/catalog";
 import { createWorkspace } from "@/lib/server/workspace";
 
 const [vendor, out, prompt] = process.argv.slice(2);
@@ -17,7 +18,7 @@ if (vendor !== "claude" || !out || !prompt) {
 
 const root = await mkdtemp(join(tmpdir(), "dyon-record-"));
 const ws = await createWorkspace(root);
-const spec = DEFAULT_COMPETITORS.find((c) => c.vendor === vendor)!;
+const spec = defaultCompetitors(await loadCatalog()).find((c) => c.vendor === vendor)!;
 const lines: string[] = [];
 for await (const message of query({ prompt, options: claudeOptions(ws, spec, undefined, new AbortController()) })) {
   lines.push(JSON.stringify(message));

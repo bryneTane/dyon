@@ -1,7 +1,7 @@
 // Types shared by the server (agents, runner, API routes) and the browser.
 
-import type { Competitor, CompetitorSpec, Effort, Vendor } from "./catalog";
-export type { Competitor, CompetitorSpec, Effort, Vendor };
+import type { Competitor, CompetitorSpec, Vendor } from "./catalog";
+export type { Competitor, CompetitorSpec, Vendor };
 
 export type ItemStatus = "running" | "ok" | "failed";
 
@@ -208,7 +208,7 @@ export interface HistoryEntry {
   prompt: string;
   vendor: Vendor;
   requestedModel: string;
-  effort: Effort | null;
+  effort: string | null;
   check: string | null;
   runIndex: number;
   /** Model the agent reported using. */
