@@ -6,7 +6,7 @@ import { loadCatalog } from "@/lib/server/catalog";
 import { workerSecret } from "@/lib/server/config";
 import { subscribe } from "@/lib/server/events";
 import { isId } from "@/lib/server/ids";
-import { runTurn } from "@/lib/server/runner";
+import { runTurn, stopAllTurns } from "@/lib/server/runner";
 import { store } from "@/lib/server/store";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -62,6 +62,13 @@ const server = createServer((req, res) => {
     });
   });
 });
+
+// Stopped (Ctrl+C, a deploy, a machine reclaimed): close the running turns cleanly before exiting.
+for (const signal of ["SIGTERM", "SIGINT"] as const)
+  process.on(signal, () => {
+    console.log(`${signal}: stopping the running turns`);
+    void stopAllTurns("The worker was stopped while this turn was running.").finally(() => process.exit(0));
+  });
 
 server.listen(PORT, () => console.log(`Worker listening on http://localhost:${PORT}`));
 void publishCatalog();

@@ -27,9 +27,11 @@ const env = {
   NODE_NO_WARNINGS: "1", // node:sqlite prints an experimental warning on every start
 };
 
+// The worker is not restarted on file changes: a restart would cut its running turns short. Restart
+// `npm run dev` to load worker changes.
 const processes = [
   { name: "web", color: 36, args: ["next", "dev"] },
-  { name: "worker", color: 33, args: ["tsx", "watch", "--conditions=react-server", "worker/server.ts"] },
+  { name: "worker", color: 33, args: ["tsx", "--conditions=react-server", "worker/server.ts"] },
 ];
 const children = processes.map(({ name, color, args }) => {
   const child = spawn(process.platform === "win32" ? "npx.cmd" : "npx", args, {

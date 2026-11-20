@@ -22,6 +22,18 @@ const SAVE_EVERY_MS = 1000;
 /** A turn still running after this long is stopped, so a stuck agent cannot run (and spend) forever. */
 export const TURN_LIMIT_MS = 20 * 60_000;
 
+/** Turns running in this process, to stop them all when the worker is asked to stop. */
+const running = new Map<string, { abort: AbortController; done: Promise<void> }>();
+
+/**
+ * Stops every running turn with `reason` and waits until each one is saved: its runs end "stopped" with the
+ * steps they had, so the turns close at once instead of after the missing signs of life.
+ */
+export async function stopAllTurns(reason: string): Promise<void> {
+  for (const { abort } of running.values()) abort.abort(reason);
+  await Promise.all([...running.values()].map(({ done }) => done.catch(() => {})));
+}
+
 /**
  * Runs a queued turn to its end, in the worker: closing or refreshing the page does not stop it.
  * Every event is numbered, applied to the record kept in memory, and published to open tabs. The record is
@@ -66,6 +78,8 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
     record = { ...record!, turns: record!.turns.map((t) => (t.index === turnIndex ? { ...t, heartbeatAt: now } : t)) };
   };
 
+  let finished = () => {};
+  running.set(comparisonId, { abort, done: new Promise<void>((resolve) => (finished = resolve)) });
   beat();
   emit({ type: "turn_start", turnIndex, prompt: turn.prompt, startedAt: turn.startedAt });
   const heartbeat = setInterval(() => {
@@ -84,6 +98,8 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
   await db.appendHistory(history);
   emit({ type: "turn_done", turnIndex });
   await saving;
+  running.delete(comparisonId);
+  finished();
 
   async function runs() {
     await Promise.all(
