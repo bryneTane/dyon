@@ -13,7 +13,7 @@ import type { HistoryEntry, RunState, RunTurnResult, StreamEvent, TimelineItem }
 import { workDir } from "./config";
 import { publish } from "./events";
 import { store } from "./store";
-import { createWorkspace, openWorkspace, type Workspace } from "./workspace";
+import { createWorkspace, markTurnStart, openWorkspace, workspaceDiff, type Workspace } from "./workspace";
 
 /** Identifies this server process, to recognize later a turn that a restart cut short. */
 export const bootId = ((globalThis as { __dyonBootId?: string }).__dyonBootId ??= randomUUID());
@@ -59,9 +59,11 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
       const started = Date.now();
       const saved = record!.runs[run.runId];
       let report: TurnReport;
+      let ws: Workspace | null = null;
       try {
         const root = join(workDir, comparisonId, run.runId);
-        const ws = turnIndex === 0 ? await createWorkspace(root) : await openWorkspace(root);
+        ws = turnIndex === 0 ? await createWorkspace(root) : await openWorkspace(root);
+        await markTurnStart(ws);
         const session = openSession(ws, competitor, saved?.session ?? null);
         report = await session.send(turn.prompt, item, abort.signal);
         record = {
@@ -93,7 +95,7 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
         outcome: report.outcome,
         check: null,
         counts,
-        diff: null,
+        diff: ws ? await workspaceDiff(ws).catch(() => null) : null,
       };
       emit({ type: "run_done", runId: run.runId, turnIndex, result });
       history.push({

@@ -2,7 +2,7 @@ import { competitorLabel, type Catalog } from "@/lib/domain/catalog";
 import type { ComparisonInfo, TurnRecord } from "@/lib/domain/types";
 import { CompareTable } from "./CompareTable";
 import { RunStatus } from "./RunStatus";
-import { Timeline } from "./Timeline";
+import { RunPanel } from "./RunPanel";
 
 /** One turn: its prompt, then one column per run, side by side, each with its agent, status and steps. */
 export function TurnBlock({
@@ -33,7 +33,7 @@ export function TurnBlock({
                 <strong>{competitorLabel(competitor, catalog ?? NO_CATALOG)}</strong>
                 <RunStatus result={turn.results[run.runId]} queued={turn.state === "queued"} />
               </header>
-              <Timeline items={turn.items[run.runId] ?? []} />
+              <RunPanel items={turn.items[run.runId] ?? []} result={turn.results[run.runId]} />
             </section>
           );
         })}

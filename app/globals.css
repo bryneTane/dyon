@@ -401,3 +401,67 @@ pre {
 .compare .legend a {
   color: inherit;
 }
+
+/* Tabs of a run: its steps, or the files it changed */
+.tabs {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 4px 0;
+  color: var(--dimmed);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tabs button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.tabs button.on {
+  color: var(--foreground);
+  border-bottom-color: var(--agent);
+}
+.count {
+  font-size: 11px;
+  color: var(--dimmed);
+  font-variant-numeric: tabular-nums;
+}
+.changed-files {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.changed-files li {
+  padding: 2px 0;
+}
+.change {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.change.added {
+  color: var(--success);
+}
+.change.modified {
+  color: var(--warning);
+}
+.change.deleted {
+  color: var(--danger);
+}
+.patch-files {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.patch {
+  overflow: auto;
+  font-size: 12px;
+}

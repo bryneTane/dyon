@@ -69,6 +69,8 @@ export type Outcome =
 
 export interface DiffFile {
   path: string;
+  change: "added" | "modified" | "deleted";
+  /** Lines added and removed; null for a binary file. */
   added: number | null;
   removed: number | null;
 }
