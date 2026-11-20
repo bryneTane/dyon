@@ -64,6 +64,7 @@ const runRoot = (comparisonId: string, runId: string) => join(workDir, compariso
  */
 export async function runTurnJob(api: WorkerApi): Promise<void> {
   const claimed = await api.claim();
+  console.log(`Claim answered at ${Math.round(process.uptime() * 1000)} ms.`);
   if (!claimed) return console.log("Nothing to run: the turn was taken or closed.");
   const { turnIndex, claim, keys } = claimed;
   let record = claimed.record;
