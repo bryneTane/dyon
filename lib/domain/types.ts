@@ -155,6 +155,8 @@ export interface TurnRecord {
   bootId: string | null;
   items: Record<string, TimelineItem[]>;
   results: Record<string, RunTurnResult>;
+  /** How each run ended, with its wall-clock time measured by Dyon. */
+  ends: Record<string, { outcome: Outcome; wallMs: number }>;
   /** Turn-level message: interrupted, or failed before the runs could start. */
   error?: string;
 }

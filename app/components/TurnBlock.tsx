@@ -1,46 +1,53 @@
 import { CheckCircle2, CircleSlash, Loader2, XCircle } from "lucide-react";
 import { competitorLabel, type Catalog } from "@/lib/domain/catalog";
-import type { ComparisonInfo, Outcome, TimelineItem } from "@/lib/domain/types";
+import type { ComparisonInfo, TurnRecord } from "@/lib/domain/types";
 import { Timeline } from "./Timeline";
 
-export interface RunEnd {
-  outcome: Outcome;
-  wallMs: number;
-}
+type RunEnd = TurnRecord["ends"][string];
 
-/** One column per run, side by side, each with its agent, its status and its steps. */
+/** One turn: its prompt, then one column per run, side by side, each with its agent, status and steps. */
 export function TurnBlock({
   info,
-  items,
-  ends,
+  turn,
+  catalog,
 }: {
   info: ComparisonInfo;
-  items: Record<string, TimelineItem[]>;
-  ends: Record<string, RunEnd>;
+  turn: TurnRecord;
+  catalog: Catalog | null;
 }) {
   return (
-    <div className="runs">
-      {info.runs.map((run) => {
-        const competitor = info.competitors.find((c) => c.id === run.competitorId)!;
-        return (
-          <section key={run.runId} className={`run slot-${competitor.slot}`}>
-            <header>
-              <span className="dot" />
-              <strong>{competitorLabel(competitor, EMPTY_CATALOG)}</strong>
-              <RunStatus end={ends[run.runId]} />
-            </header>
-            <Timeline items={items[run.runId] ?? []} />
-          </section>
-        );
-      })}
+    <div className="turn">
+      <p className="prompt">{turn.prompt}</p>
+      {turn.error && <p className="error">{turn.error}</p>}
+      <div className="runs">
+        {info.runs.map((run) => {
+          const competitor = info.competitors.find((c) => c.id === run.competitorId)!;
+          return (
+            <section key={run.runId} className={`run slot-${competitor.slot}`}>
+              <header>
+                <span className="dot" />
+                <strong>{competitorLabel(competitor, catalog ?? NO_CATALOG)}</strong>
+                <RunStatus end={turn.ends[run.runId]} queued={turn.state === "queued"} />
+              </header>
+              <Timeline items={turn.items[run.runId] ?? []} />
+            </section>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-// Model labels need the agents' catalog, which the page does not load yet: the model id is shown instead.
-const EMPTY_CATALOG: Catalog = { claude: { models: [] }, codex: { models: [] } };
+// Until the agents' catalog has loaded, models are shown by their id.
+const NO_CATALOG: Catalog = { claude: { models: [] }, codex: { models: [] } };
 
-function RunStatus({ end }: { end?: RunEnd }) {
+function RunStatus({ end, queued }: { end?: RunEnd; queued: boolean }) {
+  if (!end && queued)
+    return (
+      <span className="status">
+        <Loader2 size={14} className="spin" /> Starting
+      </span>
+    );
   if (!end)
     return (
       <span className="status">

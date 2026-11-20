@@ -317,3 +317,26 @@ pre {
   font-size: 13px;
   color: var(--muted);
 }
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.prompt {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--surface);
+  white-space: pre-wrap;
+  max-height: 160px;
+  overflow: auto;
+}
+.chat button.link {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+}

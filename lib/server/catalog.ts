@@ -100,6 +100,7 @@ async function read(load: () => Promise<ModelOption[]>): Promise<Catalog[keyof C
     const models = await load();
     return models.length ? { models } : { models, error: "The agent reported no models." };
   } catch (error) {
+    console.error("Could not read an agent's models:", error);
     return { models: [], error: `Could not read the agent's models: ${errorText(error)}` };
   }
 }

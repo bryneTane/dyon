@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import type { ComparisonInfo, StreamEvent, TimelineItem } from "@/lib/domain/types";
-import { TurnBlock, type RunEnd } from "./TurnBlock";
+import { useEffect, useState } from "react";
+import { defaultCompetitors, VENDOR_LABELS, VENDORS, type Catalog } from "@/lib/domain/catalog";
+import { TurnBlock } from "./TurnBlock";
+import { useComparison } from "./useComparison";
 
 /**
  * Tasks offered on the empty screen, one per kind of task public comparisons of coding agents use:
@@ -29,64 +30,43 @@ const EXAMPLES = [
   },
 ];
 
-/** A prompt box and one column per run, listing each agent's steps as they arrive. */
+/** A prompt box, then the comparison it started, followed live and kept across refreshes. */
 export function Chat() {
   const [prompt, setPrompt] = useState("");
-  const [info, setInfo] = useState<ComparisonInfo | null>(null);
-  const [runs, setRuns] = useState<Record<string, TimelineItem[]>>({});
-  const [ends, setEnds] = useState<Record<string, RunEnd>>({});
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
+  const [sending, setSending] = useState(false);
+  const { record, error, setError, open, reset } = useComparison();
+  const busy = sending || record?.status === "busy";
 
-  function apply(event: StreamEvent) {
-    if (event.type === "comparison") {
-      setInfo(event.info);
-    } else if (event.type === "run_end") {
-      setEnds((all) => ({ ...all, [event.runId]: { outcome: event.outcome, wallMs: event.wallMs } }));
-    } else if (event.type === "item") {
-      setRuns((all) => {
-        const list = all[event.runId] ?? [];
-        const at = list.findIndex((i) => i.id === event.item.id);
-        const next = at === -1 ? [...list, event.item] : list.map((i, n) => (n === at ? event.item : i));
-        return { ...all, [event.runId]: next };
-      });
-    } else if (event.type === "fatal") {
-      setError(event.message);
-    }
-  }
+  useEffect(() => {
+    fetch("/api/catalog")
+      .then((r) => r.json() as Promise<{ catalog: Catalog }>)
+      .then(({ catalog }) => setCatalog(catalog))
+      .catch((e) => setError(`Could not read the agents' models: ${e instanceof Error ? e.message : String(e)}`));
+  }, [setError]);
 
   async function send() {
-    setInfo(null);
-    setRuns({});
-    setEnds({});
+    setSending(true);
     setError(null);
-    setRunning(true);
     try {
-      const response = await fetch("/api/turn", {
+      // Read again: the agents' catalog is cached by the server once it loads fully, and retried until then.
+      const { catalog } = (await (await fetch("/api/catalog")).json()) as { catalog: Catalog };
+      setCatalog(catalog);
+      const missing = VENDORS.flatMap((v) => (catalog[v].error ? [`${VENDOR_LABELS[v]}: ${catalog[v].error}`] : []));
+      if (missing.length) return setError(`${missing.join(" ")} Try again in a moment.`);
+      const response = await fetch("/api/comparisons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, competitors: defaultCompetitors(catalog) }),
       });
-      if (!response.ok || !response.body) {
-        setError(
-          ((await response.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${response.status}`,
-        );
-        return;
-      }
-      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-      let buffer = "";
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += value;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) if (line.trim()) apply(JSON.parse(line) as StreamEvent);
-      }
+      const body = (await response.json().catch(() => null)) as { id?: string; error?: string } | null;
+      if (!response.ok || !body?.id) return setError(body?.error ?? `HTTP ${response.status}`);
+      setPrompt("");
+      open(body.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setRunning(false);
+      setSending(false);
     }
   }
 
@@ -95,7 +75,7 @@ export function Chat() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          if (prompt.trim() && !running) void send();
+          if (prompt.trim() && !busy) void send();
         }}
       >
         <textarea
@@ -104,12 +84,23 @@ export function Chat() {
           rows={3}
           placeholder="Describe a coding task"
         />
-        <button type="submit" disabled={running || !prompt.trim()}>
-          {running ? "Running…" : "Send"}
+        <button type="submit" disabled={busy || !prompt.trim()}>
+          {busy ? "Running…" : "Send"}
         </button>
       </form>
       {error && <p className="error">{error}</p>}
-      {!info && !running && (
+      {record ? (
+        <>
+          {record.turns.map((turn) => (
+            <TurnBlock key={turn.index} info={record.info} turn={turn} catalog={catalog} />
+          ))}
+          {!busy && (
+            <button type="button" className="link" onClick={reset}>
+              New comparison
+            </button>
+          )}
+        </>
+      ) : (
         <div className="examples">
           <p className="muted small">Or start from an example:</p>
           {EXAMPLES.map((example) => (
@@ -120,7 +111,6 @@ export function Chat() {
           ))}
         </div>
       )}
-      {info && <TurnBlock info={info} items={runs} ends={ends} />}
     </div>
   );
 }
