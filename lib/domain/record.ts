@@ -16,7 +16,7 @@ export function newRecord(info: ComparisonInfo, prompt: string, now: string): Co
 }
 
 export function newTurn(index: number, prompt: string, now: string): TurnRecord {
-  return { index, prompt, state: "queued", startedAt: now, bootId: null, items: {}, results: {}, ends: {} };
+  return { index, prompt, state: "queued", startedAt: now, bootId: null, items: {}, results: {} };
 }
 
 /**
@@ -44,11 +44,6 @@ export function applyEvent(record: ComparisonRecord, event: StreamEvent): Compar
       });
     case "run_done":
       return turn(event.turnIndex, (t) => ({ ...t, results: { ...t.results, [event.runId]: event.result } }));
-    case "run_end":
-      return turn(event.turnIndex, (t) => ({
-        ...t,
-        ends: { ...t.ends, [event.runId]: { outcome: event.outcome, wallMs: event.wallMs } },
-      }));
     case "turn_done":
       return { ...turn(event.turnIndex, (t) => ({ ...t, state: "done" })), status: "idle" };
     case "fatal": {

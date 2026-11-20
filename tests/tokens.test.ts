@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { subtractTokens, ZERO_TOKENS } from "@/lib/agents/session";
+import { subtractTokens, ZERO_TOKENS } from "@/lib/domain/tokens";
 
 describe("subtractTokens", () => {
   it("turns two running totals into one turn's usage", () => {

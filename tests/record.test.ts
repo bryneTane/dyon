@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyEvent, followEvent, newRecord } from "@/lib/domain/record";
-import type { ComparisonInfo, StreamEvent } from "@/lib/domain/types";
+import type { RunTurnResult, ComparisonInfo, StreamEvent } from "@/lib/domain/types";
 
 const info: ComparisonInfo = {
   id: "c",
@@ -36,14 +36,23 @@ describe("applyEvent", () => {
     expect(r.turns[0].items["a-1"].map((i) => `${i.id}:${i.status ?? ""}`)).toEqual(["1:ok", "2:"]);
   });
 
-  it("records how runs ended, what the agent reported, and ends the turn", () => {
+  it("records each run's result, what the agent reported, and ends the turn", () => {
+    const result: RunTurnResult = {
+      wallMs: 1200,
+      tokens: null,
+      cost: { computedUsd: null, reportedUsd: null, unpriced: [], unpricedWebActions: 0 },
+      outcome: { status: "completed" },
+      check: null,
+      counts: { commands: 1, fileReads: 0, fileEdits: 0, webSearches: 0, otherTools: 0, failedActions: 0 },
+      diff: null,
+    };
     const r = apply(
       { type: "run_meta", runId: "a-1", model: "claude-x", version: "1.0" },
-      { type: "run_end", runId: "a-1", turnIndex: 0, outcome: { status: "completed" }, wallMs: 1200 },
+      { type: "run_done", runId: "a-1", turnIndex: 0, result },
       { type: "turn_done", turnIndex: 0 },
     );
     expect(r.meta["a-1"]).toEqual({ model: "claude-x", version: "1.0" });
-    expect(r.turns[0].ends["a-1"]).toEqual({ outcome: { status: "completed" }, wallMs: 1200 });
+    expect(r.turns[0].results["a-1"]).toEqual(result);
     expect(r.turns[0].state).toBe("done");
     expect(r.status).toBe("idle");
   });

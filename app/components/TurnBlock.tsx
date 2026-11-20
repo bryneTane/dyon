@@ -1,9 +1,9 @@
 import { CheckCircle2, CircleSlash, Loader2, XCircle } from "lucide-react";
 import { competitorLabel, type Catalog } from "@/lib/domain/catalog";
-import type { ComparisonInfo, TurnRecord } from "@/lib/domain/types";
+import type { ComparisonInfo, RunTurnResult, TurnRecord } from "@/lib/domain/types";
 import { Timeline } from "./Timeline";
 
-type RunEnd = TurnRecord["ends"][string];
+type RunEnd = Pick<RunTurnResult, "outcome" | "wallMs">;
 
 /** One turn: its prompt, then one column per run, side by side, each with its agent, status and steps. */
 export function TurnBlock({
@@ -27,7 +27,7 @@ export function TurnBlock({
               <header>
                 <span className="dot" />
                 <strong>{competitorLabel(competitor, catalog ?? NO_CATALOG)}</strong>
-                <RunStatus end={turn.ends[run.runId]} queued={turn.state === "queued"} />
+                <RunStatus end={turn.results[run.runId]} queued={turn.state === "queued"} />
               </header>
               <Timeline items={turn.items[run.runId] ?? []} />
             </section>

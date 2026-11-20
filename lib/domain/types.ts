@@ -113,7 +113,8 @@ export interface RunTurnResult {
   outcome: Outcome;
   check: CheckResult | null;
   counts: ActionCounts;
-  diff: { files: DiffFile[]; patch: string; truncated: boolean };
+  /** Measured by Dyon. Null while not computed. */
+  diff: { files: DiffFile[]; patch: string; truncated: boolean } | null;
 }
 
 export interface RunInfo {
@@ -155,8 +156,6 @@ export interface TurnRecord {
   bootId: string | null;
   items: Record<string, TimelineItem[]>;
   results: Record<string, RunTurnResult>;
-  /** How each run ended, with its wall-clock time measured by Dyon. */
-  ends: Record<string, { outcome: Outcome; wallMs: number }>;
   /** Turn-level message: interrupted, or failed before the runs could start. */
   error?: string;
 }
@@ -194,8 +193,6 @@ export type StreamEvent =
   | { type: "run_meta"; runId: string; model?: string; version?: string }
   | { type: "item"; runId: string; turnIndex: number; item: TimelineItem }
   | { type: "run_done"; runId: string; turnIndex: number; result: RunTurnResult }
-  /** How a run ended, with its wall-clock time measured by Dyon. */
-  | { type: "run_end"; runId: string; turnIndex: number; outcome: Outcome; wallMs: number }
   | { type: "turn_done"; turnIndex: number }
   | { type: "fatal"; message: string };
 
