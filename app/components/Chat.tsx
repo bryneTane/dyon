@@ -3,18 +3,20 @@
 import { useState } from "react";
 import type { StreamEvent, TimelineItem } from "@/lib/domain/types";
 
-/** A prompt box and one column listing the agent's steps as they arrive. */
+/** A prompt box and one column per run, listing each agent's steps as they arrive. */
 export function Chat() {
   const [prompt, setPrompt] = useState("");
-  const [items, setItems] = useState<TimelineItem[]>([]);
+  const [runs, setRuns] = useState<Record<string, TimelineItem[]>>({});
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function apply(event: StreamEvent) {
     if (event.type === "item") {
-      setItems((list) => {
+      setRuns((all) => {
+        const list = all[event.runId] ?? [];
         const at = list.findIndex((i) => i.id === event.item.id);
-        return at === -1 ? [...list, event.item] : list.map((i, n) => (n === at ? event.item : i));
+        const next = at === -1 ? [...list, event.item] : list.map((i, n) => (n === at ? event.item : i));
+        return { ...all, [event.runId]: next };
       });
     } else if (event.type === "fatal") {
       setError(event.message);
@@ -22,7 +24,7 @@ export function Chat() {
   }
 
   async function send() {
-    setItems([]);
+    setRuns({});
     setError(null);
     setRunning(true);
     try {
@@ -73,17 +75,24 @@ export function Chat() {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
-      <ol className="steps">
-        {items.map((item) => (
-          <li key={item.id}>
-            <code>
-              {item.kind}
-              {item.status ? ` (${item.status})` : ""}
-            </code>{" "}
-            {describe(item)}
-          </li>
+      <div className="runs">
+        {Object.entries(runs).map(([runId, items]) => (
+          <section key={runId}>
+            <h2>{runId}</h2>
+            <ol className="steps">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <code>
+                    {item.kind}
+                    {item.status ? ` (${item.status})` : ""}
+                  </code>{" "}
+                  {describe(item)}
+                </li>
+              ))}
+            </ol>
+          </section>
         ))}
-      </ol>
+      </div>
     </div>
   );
 }

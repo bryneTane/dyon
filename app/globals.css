@@ -54,7 +54,7 @@ textarea {
 }
 
 .home {
-  max-width: 720px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 96px 16px;
 }
@@ -89,4 +89,14 @@ textarea {
   margin-bottom: 8px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.runs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 24px;
+}
+.runs h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
 }

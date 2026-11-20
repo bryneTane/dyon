@@ -1,14 +1,14 @@
 import "server-only";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { query, type ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Catalog, ModelOption } from "@/lib/domain/catalog";
 import { errorText } from "@/lib/domain/text";
+import { codexPackageDir } from "./config";
 
 const exec = promisify(execFile);
 
@@ -79,9 +79,8 @@ async function readClaudeModels(): Promise<ModelOption[]> {
 }
 
 async function readCodexModels(): Promise<ModelOption[]> {
-  const require = createRequire(import.meta.url);
-  const pkg = require.resolve("@openai/codex/package.json");
-  const bin = join(dirname(pkg), (require(pkg) as { bin: { codex: string } }).bin.codex);
+  const pkg = JSON.parse(await readFile(join(codexPackageDir, "package.json"), "utf8")) as { bin: { codex: string } };
+  const bin = join(codexPackageDir, pkg.bin.codex);
   const home = await mkdtemp(join(tmpdir(), "dyon-catalog-"));
   try {
     // Only what the CLI needs: no user configuration and no key.
@@ -107,11 +106,15 @@ async function read(load: () => Promise<ModelOption[]>): Promise<Catalog[keyof C
 
 const cache = globalThis as { __dyonCatalog?: Promise<Catalog> };
 
-/** Both agents' models, read once per server process. */
+/** Both agents' models, read once per server process. A catalog with an error is read again on the next call. */
 export function loadCatalog(): Promise<Catalog> {
-  cache.__dyonCatalog ??= Promise.all([read(readClaudeModels), read(readCodexModels)]).then(([claude, codex]) => ({
-    claude,
-    codex,
-  }));
-  return cache.__dyonCatalog;
+  const cached = cache.__dyonCatalog;
+  if (cached) return cached;
+  const loading = Promise.all([read(readClaudeModels), read(readCodexModels)]).then(([claude, codex]) => {
+    const catalog: Catalog = { claude, codex };
+    if (claude.error || codex.error) cache.__dyonCatalog = undefined;
+    return catalog;
+  });
+  cache.__dyonCatalog = loading;
+  return loading;
 }
