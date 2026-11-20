@@ -168,8 +168,8 @@ export interface TurnRecord {
   prompt: string;
   state: TurnState;
   startedAt: string;
-  /** Server process that runs the turn, to detect a turn cut short by a restart. */
-  bootId: string | null;
+  /** Last sign of life of the worker running the turn, to close a turn whose worker is gone. */
+  heartbeatAt?: string;
   items: Record<string, TimelineItem[]>;
   results: Record<string, RunTurnResult>;
   /** Turn-level message: interrupted, or failed before the runs could start. */

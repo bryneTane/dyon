@@ -16,7 +16,8 @@ cp .env.example .env.local   # then fill in both keys
 npm run dev
 ```
 
-Open http://localhost:3000. Checks: `npm run typecheck && npm test`.
+`npm run dev` starts two processes: the web app on http://localhost:3000 and the worker that runs the agents on
+port 3001. Checks: `npm run typecheck && npm test`.
 
 A missing key does not stop the app: the runs of that agent fail at once with a message saying which key to add, and
 the other agent's runs go on.
@@ -35,8 +36,9 @@ the other agent's runs go on.
 5. Send follow-ups: every agent continues its own session in its own workspace. Stop a turn at any time.
 6. Give your verdict, open the read-only report (`/report/<id>`) and look at the scoreboard of past runs.
 
-A comparison has its own link (`?c=<id>`): a refresh, a second tab or a server restart keeps it. A turn cut short by a
-restart is closed with a message, and a follow-up is accepted.
+A comparison has its own link (`?c=<id>`): a refresh, a second tab or a restart keeps it. The worker records a sign of
+life every 5 seconds while it runs a turn; a turn without one for 60 seconds is closed with a message, and a
+follow-up is accepted.
 
 ### Example tasks
 
@@ -78,15 +80,18 @@ app/                 Next.js pages, API routes and components
 lib/domain/          pure logic shared by server and browser: types, record reducer, metrics, pricing, stats
 lib/agents/          one adapter per agent, behind the AgentSession interface (claude.ts, codex.ts),
                      and the pure mappers from each SDK's events to timeline steps (*-map.ts)
-lib/server/          runner (runs a turn detached from any request), SQLite store, event bus, workspaces, catalog
+lib/server/          runner, store (SQLite locally, Postgres with DATABASE_URL), event bus, workspaces, catalog
+worker/              the worker process: runs the turns the web app hands it, streams their events
 tests/               vitest, including replays of recorded agent sessions (tests/fixtures)
 ```
 
 - Each agent runs through its official SDK (Claude Agent SDK, Codex SDK), with no approval prompts, none of the
   machine's own settings, and an environment holding only its own key.
 - The models and effort levels offered come from the agents themselves, not from a list kept in this repository.
-- A turn runs outside the request that started it. Its events are numbered, saved and streamed to every open tab; a
-  tab that misses some reloads the saved state.
+- Turns run in a separate worker process, never in the web app: a turn runs for minutes and executes the agents'
+  commands. The web app hands it a turn; the worker reports the agents' models, saves each turn's progress and
+  streams its numbered events, which the web app passes to every open tab. A tab that misses some reloads the
+  saved state.
 
 ## Known limits
 

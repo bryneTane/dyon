@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: Request, ctx: RouteContext<"/api/comparisons/[id]/runs/[runId]/files">) {
   const { id, runId } = await ctx.params;
-  const record = isId(id) ? store().get(id) : null;
+  const record = isId(id) ? await (await store()).get(id) : null;
   if (!record || !record.info.runs.some((r) => r.runId === runId))
     return Response.json({ error: "This run does not exist." }, { status: 404 });
   try {

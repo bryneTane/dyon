@@ -1,27 +1,38 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { isValidSpec, VENDOR_LABELS, type Catalog } from "@/lib/domain/catalog";
-import { closeInterruptedTurn } from "@/lib/domain/interrupted";
 import { newRecord, newTurn } from "@/lib/domain/record";
 import type { CreateBody } from "@/lib/domain/schemas";
+import { closeStalledTurn } from "@/lib/domain/stall";
 import { errorText } from "@/lib/domain/text";
 import type { ComparisonInfo, ComparisonRecord } from "@/lib/domain/types";
+import { workerSecret, workerUrl } from "./config";
 import { isId } from "./ids";
-import { bootId, runTurn } from "./runner";
 import { store } from "./store";
 
-/**
- * The saved comparison, with any turn cut short by a server restart closed first, so the page never waits
- * for a turn that cannot finish and a follow-up is accepted.
- */
-export function loadRecord(id: string): ComparisonRecord | null {
-  const record = isId(id) ? store().get(id) : null;
-  if (!record || !closeInterruptedTurn(record, bootId)) return record;
-  return store().update(id, (r) => closeInterruptedTurn(r, bootId) ?? r);
+/** The agents' catalog as the worker last read it from the agents themselves. */
+export async function storedCatalog(): Promise<Catalog> {
+  const catalog = await (await store()).getValue<Catalog>("catalog");
+  if (catalog) return catalog;
+  const error = "The worker has not reported this agent's models yet. Try again in a moment.";
+  return { claude: { models: [], error }, codex: { models: [], error } };
 }
 
-/** Saves a new comparison with its first turn queued, starts the turn without waiting for it, returns its id. */
-export function createComparison(body: CreateBody, catalog: Catalog): { id: string } | { error: string } {
+/**
+ * The saved comparison, with a turn that can no longer finish closed first (its worker stopped sending signs of
+ * life, or none started it), so the page never waits for it and a follow-up is accepted.
+ */
+export async function loadRecord(id: string): Promise<ComparisonRecord | null> {
+  if (!isId(id)) return null;
+  const db = await store();
+  const record = await db.get(id);
+  if (!record || !closeStalledTurn(record)) return record;
+  return db.update(id, (r) => closeStalledTurn(r) ?? r);
+}
+
+/** Saves a new comparison with its first turn queued, hands the turn to the worker, returns its id. */
+export async function createComparison(body: CreateBody): Promise<{ id: string } | { error: string }> {
+  const catalog = await storedCatalog();
   for (const spec of body.competitors) {
     const { vendor, model } = spec;
     if (catalog[vendor].error) return { error: `${VENDOR_LABELS[vendor]}: ${catalog[vendor].error}` };
@@ -44,8 +55,8 @@ export function createComparison(body: CreateBody, catalog: Catalog): { id: stri
       })),
     ),
   };
-  store().insert(newRecord(info, body.prompt, new Date().toISOString()));
-  start(info.id, 0);
+  await (await store()).insert(newRecord(info, body.prompt, new Date().toISOString()));
+  await dispatch(info.id, 0);
   return { id: info.id };
 }
 
@@ -54,11 +65,16 @@ export function createComparison(body: CreateBody, catalog: Catalog): { id: stri
  * turn is queued or running. The check and the new turn are written in one transaction, so two follow-ups
  * sent at once cannot both start.
  */
-export function addTurn(id: string, prompt: string): { turnIndex: number } | { error: string; status: number } {
+export async function addTurn(
+  id: string,
+  prompt: string,
+): Promise<{ turnIndex: number } | { error: string; status: number }> {
+  if (!(await loadRecord(id))) return { error: "This comparison does not exist.", status: 404 };
   let turnIndex = -1;
   try {
-    if (!loadRecord(id)) return { error: "This comparison does not exist.", status: 404 };
-    store().update(id, (record) => {
+    await (
+      await store()
+    ).update(id, (record) => {
       if (record.status === "busy") throw new Busy();
       turnIndex = record.turns.length;
       return {
@@ -72,24 +88,36 @@ export function addTurn(id: string, prompt: string): { turnIndex: number } | { e
     if (error instanceof Busy) return { error: "Wait for the current turn to finish.", status: 409 };
     return { error: errorText(error), status: 404 };
   }
-  start(id, turnIndex);
+  await dispatch(id, turnIndex);
   return { turnIndex };
 }
 
 class Busy extends Error {}
 
-/** Runs a turn in the background. A failure that escapes the runner is saved on the turn, never lost. */
-function start(id: string, turnIndex: number): void {
-  runTurn(id, turnIndex).catch((error) => {
-    console.error(`Turn ${turnIndex} of ${id} failed:`, error);
-    try {
-      store().update(id, (r) => ({
-        ...r,
-        status: "idle",
-        turns: r.turns.map((t) => (t.index === turnIndex ? { ...t, state: "done", error: errorText(error) } : t)),
-      }));
-    } catch (saveError) {
-      console.error(`Could not save the failure of ${id}:`, saveError);
-    }
-  });
+/**
+ * Hands a queued turn to the worker. If the worker cannot be reached, the turn is closed with the reason, so
+ * the comparison is never left waiting.
+ */
+async function dispatch(id: string, turnIndex: number): Promise<void> {
+  try {
+    const response = await fetch(`${workerUrl}/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerSecret}` },
+      body: JSON.stringify({ comparisonId: id, turnIndex }),
+    });
+    if (!response.ok) throw new Error(`The worker answered ${response.status}.`);
+  } catch (error) {
+    console.error(`Could not hand turn ${turnIndex} of ${id} to the worker:`, error);
+    await (
+      await store()
+    ).update(id, (r) => ({
+      ...r,
+      status: "idle",
+      turns: r.turns.map((t) =>
+        t.index === turnIndex
+          ? { ...t, state: "done", error: `The worker could not be reached: ${errorText(error)}` }
+          : t,
+      ),
+    }));
+  }
 }

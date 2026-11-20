@@ -1,8 +1,7 @@
 import { ImageResponse } from "next/og";
 import { competitorLabel } from "@/lib/domain/catalog";
-import { namesHidden } from "@/lib/domain/interrupted";
-import { loadCatalog } from "@/lib/server/catalog";
-import { loadRecord } from "@/lib/server/turns";
+import { namesHidden } from "@/lib/domain/stall";
+import { loadRecord, storedCatalog } from "@/lib/server/turns";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -12,8 +11,8 @@ const COLORS = ["#d4744a", "#22a898", "#8b7cf6"];
 
 /** Social preview: the task, the competitors and the verdict. */
 export default async function Image({ params }: { params: Promise<{ id: string }> }) {
-  const record = loadRecord((await params).id);
-  const catalog = await loadCatalog();
+  const record = await loadRecord((await params).id);
+  const catalog = await storedCatalog();
   const prompt = (record?.turns[0]?.prompt ?? "Comparison not found").replace(/\s+/g, " ");
   const title = prompt.length > 110 ? `${prompt.slice(0, 109)}…` : prompt;
   const hidden = record ? namesHidden(record) : false;

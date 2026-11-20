@@ -16,7 +16,7 @@ export function newRecord(info: ComparisonInfo, prompt: string, now: string): Co
 }
 
 export function newTurn(index: number, prompt: string, now: string): TurnRecord {
-  return { index, prompt, state: "queued", startedAt: now, bootId: null, items: {}, results: {} };
+  return { index, prompt, state: "queued", startedAt: now, items: {}, results: {} };
 }
 
 /**

@@ -5,6 +5,7 @@ import { createClaudeSession } from "@/lib/agents/claude";
 import { createCodexSession } from "@/lib/agents/codex";
 import type { AgentSession, TurnReport } from "@/lib/agents/session";
 import { applyEvent } from "@/lib/domain/record";
+import { HEARTBEAT_MS } from "@/lib/domain/stall";
 import { errorText } from "@/lib/domain/text";
 import { createStepClock } from "@/lib/domain/timing";
 import type { CompetitorSpec } from "@/lib/domain/catalog";
@@ -15,45 +16,43 @@ import { publish } from "./events";
 import { store } from "./store";
 import { createWorkspace, markTurnStart, openWorkspace, runCheck, workspaceDiff, type Workspace } from "./workspace";
 
-/** Identifies this server process, to recognize later a turn that a restart cut short. */
-export const bootId = ((globalThis as { __dyonBootId?: string }).__dyonBootId ??= randomUUID());
-
 /** How often a running turn's record is saved, so a reload never misses more than this. */
 const SAVE_EVERY_MS = 1000;
 
 /** A turn still running after this long is stopped, so a stuck agent cannot run (and spend) forever. */
 export const TURN_LIMIT_MS = 20 * 60_000;
 
-/** The running turn of each comparison, to stop it. On globalThis: every route of this process shares it. */
-const running = ((globalThis as { __dyonRunning?: Map<string, AbortController> }).__dyonRunning ??= new Map());
-
-/** Stops the comparison's running turn: every run ends "aborted" and keeps the steps it had. */
-export function stopTurn(comparisonId: string): boolean {
-  const abort = running.get(comparisonId);
-  if (!abort) return false;
-  abort.abort("Stopped by the user.");
-  return true;
-}
-
 /**
- * Runs a queued turn to its end, outside any request: closing or refreshing the page does not stop it.
+ * Runs a queued turn to its end, in the worker: closing or refreshing the page does not stop it.
  * Every event is numbered, applied to the record kept in memory, and published to open tabs. The record is
- * saved at most every second, and before the turn's last event.
+ * saved at most every second, at every sign of life (every 5 s, which also reads a stop request), and before
+ * the turn's last event.
  */
 export async function runTurn(comparisonId: string, turnIndex: number): Promise<void> {
-  let record = store().get(comparisonId);
+  const db = await store();
+  let record = await db.get(comparisonId);
   if (!record) return;
   const turn = record.turns[turnIndex];
+  const abort = new AbortController();
   let lastSave = 0;
+  let saving: Promise<unknown> = Promise.resolve();
   const save = () => {
     lastSave = Date.now();
     const current = record!;
-    // A verdict is only saved while no turn runs, so the saved one is always the latest.
-    store().update(comparisonId, (saved) => ({
-      ...current,
-      stopRequested: saved.stopRequested,
-      verdict: saved.verdict,
-    }));
+    // Saves run one after another, in order. The web app writes the stop request and the verdict (only saved
+    // while no turn runs): both are kept from the saved record.
+    saving = saving
+      .then(() =>
+        db.update(comparisonId, (saved) => ({
+          ...current,
+          stopRequested: saved.stopRequested,
+          verdict: saved.verdict,
+        })),
+      )
+      .then((saved) => {
+        if (saved.stopRequested && !abort.signal.aborted) abort.abort("Stopped by the user.");
+      })
+      .catch((error) => console.error(`Could not save ${comparisonId}:`, error));
   };
   const emit = (event: StreamEvent) => {
     const seq = record!.seq + 1;
@@ -62,14 +61,17 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
     if (event.type === "turn_done" || Date.now() - lastSave >= SAVE_EVERY_MS) save();
     publish(comparisonId, { seq, event });
   };
-
-  record = {
-    ...record,
-    turns: record.turns.map((t) => (t.index === turnIndex ? { ...t, bootId } : t)),
+  const beat = () => {
+    const now = new Date().toISOString();
+    record = { ...record!, turns: record!.turns.map((t) => (t.index === turnIndex ? { ...t, heartbeatAt: now } : t)) };
   };
+
+  beat();
   emit({ type: "turn_start", turnIndex, prompt: turn.prompt, startedAt: turn.startedAt });
-  const abort = new AbortController();
-  running.set(comparisonId, abort);
+  const heartbeat = setInterval(() => {
+    beat();
+    save();
+  }, HEARTBEAT_MS);
   const limit = setTimeout(() => abort.abort(`Stopped at the ${TURN_LIMIT_MS / 60_000}-minute limit.`), TURN_LIMIT_MS);
   const history: HistoryEntry[] = [];
   const check = record.info.check;
@@ -77,10 +79,11 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
     await runs();
   } finally {
     clearTimeout(limit);
-    running.delete(comparisonId);
+    clearInterval(heartbeat);
   }
-  store().appendHistory(history);
+  await db.appendHistory(history);
   emit({ type: "turn_done", turnIndex });
+  await saving;
 
   async function runs() {
     await Promise.all(

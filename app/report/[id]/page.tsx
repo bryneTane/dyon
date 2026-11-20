@@ -3,10 +3,9 @@ import { notFound } from "next/navigation";
 import { CircleCheck, CircleX, EyeOff, TriangleAlert } from "lucide-react";
 import { competitorLabel, settingsLabel, VENDOR_LABELS } from "@/lib/domain/catalog";
 import { ANTHROPIC_PRICES, OPENAI_PRICES } from "@/lib/domain/pricing";
-import { namesHidden } from "@/lib/domain/interrupted";
+import { namesHidden } from "@/lib/domain/stall";
 import type { Catalog } from "@/lib/domain/catalog";
-import { loadCatalog } from "@/lib/server/catalog";
-import { loadRecord } from "@/lib/server/turns";
+import { loadRecord, storedCatalog } from "@/lib/server/turns";
 import type { Competitor, ComparisonRecord, RunTurnResult, TimelineItem } from "@/lib/domain/types";
 import { CompareTable } from "@/app/components/CompareTable";
 import { Markdown } from "@/app/components/Markdown";
@@ -28,9 +27,9 @@ function clipTitle(text: string, max = 120) {
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
-  const record = loadRecord((await params).id);
+  const record = await loadRecord((await params).id);
   if (!record) return { title: "Report not found · Dyon" };
-  const catalog = await loadCatalog();
+  const catalog = await storedCatalog();
   const title = clipTitle(record.turns[0]?.prompt ?? "Comparison", 80);
   const who = namesHidden(record)
     ? `${record.info.competitors.length} coding agents`
@@ -135,9 +134,9 @@ function CompetitorSection({
 }
 
 export default async function ReportPage({ params }: { params: Promise<{ id: string }> }) {
-  const record = loadRecord((await params).id);
+  const record = await loadRecord((await params).id);
   if (!record) notFound();
-  const catalog = await loadCatalog();
+  const catalog = await storedCatalog();
   const { info, verdict } = record;
   const hidden = namesHidden(record);
   const task = record.turns[0];

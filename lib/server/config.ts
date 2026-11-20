@@ -7,6 +7,13 @@ import { join, resolve } from "node:path";
 // Runtime data, not code: excluded from the build's file tracing.
 export const dataDir = resolve(/*turbopackIgnore: true*/ process.env.DYON_DATA_DIR || join(process.cwd(), ".dyon"));
 
+/** Postgres (hosted). Without it, a SQLite file in `dataDir`. */
+export const databaseUrl = process.env.DATABASE_URL || null;
+
+/** Where the web app reaches the worker, and the secret both share. Set by `npm run dev` locally. */
+export const workerUrl = (process.env.WORKER_URL ?? "http://localhost:3001").replace(/\/$/, "");
+export const workerSecret = process.env.WORKER_SECRET ?? "";
+
 /**
  * One folder per comparison, one per run inside it. Outside the project on purpose: agents look for a git
  * repository and instruction files (AGENTS.md) in the folders above their own, and must find none.
