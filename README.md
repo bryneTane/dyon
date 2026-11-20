@@ -37,9 +37,9 @@ the other agent's runs go on.
 5. Send follow-ups: every agent continues its own session in its own workspace. Stop a turn at any time.
 6. Give your verdict, open the read-only report (`/report/<id>`) and look at the scoreboard of past runs.
 
-A comparison has its own link (`?c=<id>`): a refresh, a second tab or a restart keeps it. The worker records a sign of
-life every 5 seconds while it runs a turn; a turn without one for 60 seconds is closed with a message, and a
-follow-up is accepted.
+A comparison has its own link (`?c=<id>`): a refresh, a second tab or a restart keeps it. The worker sends a sign of
+life every 5 seconds while it runs a turn; a turn without one for 60 seconds is closed with a message. A follow-up
+is then accepted, and continues from the files and agent sessions saved at the end of the last finished turn.
 
 ### Example tasks
 
@@ -81,8 +81,11 @@ app/                 Next.js pages, API routes and components
 lib/domain/          pure logic shared by server and browser: types, record reducer, metrics, pricing, stats
 lib/agents/          one adapter per agent, behind the AgentSession interface (claude.ts, codex.ts),
                      and the pure mappers from each SDK's events to timeline steps (*-map.ts)
-lib/server/          runner, store (SQLite locally, Postgres with DATABASE_URL), relay tokens, workspaces, catalog
-worker/              the worker process: runs the turns the web app hands it, publishes their events
+  api/worker/[id]/    the worker's API: claim a turn, progress, links to store run files
+lib/server/          store (SQLite locally, Postgres with DATABASE_URL), file storage (a folder, or Cloud Storage),
+                     tokens, dispatch to the worker, workspaces, catalog
+worker/              the worker: runs a turn through the web app's API (a local process, or one Cloud Run Job
+                     execution per turn), publishes its events
 party/               the live relay: one room per comparison, on Cloudflare
 tests/               vitest, including replays of recorded agent sessions (tests/fixtures)
 ```
@@ -94,6 +97,10 @@ tests/               vitest, including replays of recorded agent sessions (tests
   commands. The web app hands it a turn; the worker reports the agents' models, saves each turn's progress and
   publishes its numbered events to the comparison's room on the relay, which passes them to every open tab. The
   relay keeps nothing: a tab that misses events reloads the saved state.
+- The worker holds no database, storage or relay credentials: the agents run commands on its machine. The web app
+  gives it a 45-minute token for one comparison; with it, the worker claims the turn, sends its progress (the
+  answer carries a stop request) and gets short-lived links to upload each run's files and agent session after
+  every turn. A follow-up can then run on any machine.
 - Only the web app holds the relay's secret. It gives each tab a 10-minute token to join one room, and the worker a
   token to publish to the room of the turn it runs.
 

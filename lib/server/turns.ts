@@ -6,16 +6,34 @@ import type { CreateBody } from "@/lib/domain/schemas";
 import { closeStalledTurn } from "@/lib/domain/stall";
 import { errorText } from "@/lib/domain/text";
 import type { ComparisonInfo, ComparisonRecord } from "@/lib/domain/types";
-import { workerSecret, workerUrl } from "./config";
+import { dispatchCatalog, dispatchTurn } from "./dispatch";
 import { isId } from "./ids";
-import { roomUrl, signPublishToken } from "./realtime";
 import { store } from "./store";
 
-/** The agents' catalog as the worker last read it from the agents themselves. */
+/** A catalog older than this is read again from the agents, so new models show up. */
+const CATALOG_MAX_AGE_MS = 24 * 3600_000;
+/** At most one worker is started to read the models in this time. */
+const CATALOG_RETRY_MS = 2 * 60_000;
+
+/**
+ * The agents' catalog as a worker last read it from the agents themselves. When there is none, it is old, or it
+ * holds an error, a worker is started to read it again (the web app cannot run the agents).
+ */
 export async function storedCatalog(): Promise<Catalog> {
-  const catalog = await (await store()).getValue<Catalog>("catalog");
+  const db = await store();
+  const [catalog, at, requestedAt] = await Promise.all([
+    db.getValue<Catalog>("catalog"),
+    db.getValue<string>("catalogAt"),
+    db.getValue<string>("catalogRequestedAt"),
+  ]);
+  const age = (iso: string | null) => (iso ? Date.now() - Date.parse(iso) : Infinity);
+  const stale = !catalog || catalog.claude.error || catalog.codex.error || age(at) > CATALOG_MAX_AGE_MS;
+  if (stale && age(requestedAt) > CATALOG_RETRY_MS) {
+    await db.setValue("catalogRequestedAt", new Date().toISOString());
+    dispatchCatalog().catch((error) => console.error("Could not start a worker to read the models:", error));
+  }
   if (catalog) return catalog;
-  const error = "The worker has not reported this agent's models yet. Try again in a moment.";
+  const error = "Reading this agent's models. Try again in a minute.";
   return { claude: { models: [], error }, codex: { models: [], error } };
 }
 
@@ -101,12 +119,7 @@ class Busy extends Error {}
  */
 async function dispatch(id: string, turnIndex: number): Promise<void> {
   try {
-    const response = await fetch(`${workerUrl}/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerSecret}` },
-      body: JSON.stringify({ comparisonId: id, turnIndex, room: { url: roomUrl(id), token: signPublishToken(id) } }),
-    });
-    if (!response.ok) throw new Error(`The worker answered ${response.status}.`);
+    await dispatchTurn(id);
   } catch (error) {
     console.error(`Could not hand turn ${turnIndex} of ${id} to the worker:`, error);
     await (

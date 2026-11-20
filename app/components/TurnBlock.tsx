@@ -90,7 +90,7 @@ function AgentCard(props: {
             <span className="card-last-text">{stepSummary(last)}</span>
           </>
         ) : (
-          <span className="muted">{live ? "Starting…" : "No activity"}</span>
+          <span className="muted">{live ? (turn.queued ? "Starting the engine…" : "Starting…") : "No activity"}</span>
         )}
         <ChevronRight size={14} className="card-chevron" />
       </div>

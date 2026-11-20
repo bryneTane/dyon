@@ -61,7 +61,7 @@ async function removeQuietly(dir: string) {
   );
 }
 
-async function readClaudeModels(): Promise<ModelOption[]> {
+async function readClaudeModels(apiKey: string): Promise<ModelOption[]> {
   const home = await mkdtemp(join(tmpdir(), "dyon-catalog-"));
   // A session that never receives a prompt: only its model list is read.
   const idle = (async function* () {
@@ -75,7 +75,7 @@ async function readClaudeModels(): Promise<ModelOption[]> {
       env: {
         PATH: process.env.PATH ?? "/usr/bin:/bin",
         HOME: home,
-        ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+        ANTHROPIC_API_KEY: apiKey,
         CLAUDE_CONFIG_DIR: join(home, ".claude"),
       },
     },
@@ -115,17 +115,8 @@ async function read(load: () => Promise<ModelOption[]>): Promise<Catalog[keyof C
   }
 }
 
-const cache = globalThis as { __dyonCatalog?: Promise<Catalog> };
-
-/** Both agents' models, read once per server process. A catalog with an error is read again on the next call. */
-export function loadCatalog(): Promise<Catalog> {
-  const cached = cache.__dyonCatalog;
-  if (cached) return cached;
-  const loading = Promise.all([read(readClaudeModels), read(readCodexModels)]).then(([claude, codex]) => {
-    const catalog: Catalog = { claude, codex };
-    if (claude.error || codex.error) cache.__dyonCatalog = undefined;
-    return catalog;
-  });
-  cache.__dyonCatalog = loading;
-  return loading;
+/** Both agents' models, read from the agents themselves (Claude Code needs its key to list them). */
+export async function loadCatalog(anthropicKey: string): Promise<Catalog> {
+  const [claude, codex] = await Promise.all([read(() => readClaudeModels(anthropicKey)), read(readCodexModels)]);
+  return { claude, codex };
 }

@@ -8,6 +8,11 @@ import { clip } from "@/lib/domain/text";
 import type { CheckResult, DiffFile, FileContent, RunTurnResult, WorkspaceFile } from "@/lib/domain/types";
 
 const exec = promisify(execFile);
+const execBuffer = promisify(execFile) as unknown as (
+  file: string,
+  args: string[],
+  options: { maxBuffer: number; encoding: "buffer" },
+) => Promise<{ stdout: Buffer }>;
 // Dyon's own git calls: a fixed identity, and no hooks or settings the agent could have written.
 const GIT = ["-c", "user.name=dyon", "-c", "user.email=dyon@example.invalid", "-c", "core.hooksPath=/dev/null"];
 const MAX_PATCH_CHARS = 200_000;
@@ -34,6 +39,7 @@ async function workspaceAt(root: string): Promise<Workspace> {
  */
 export async function createWorkspace(root: string): Promise<Workspace> {
   const dir = join(root, "workspace");
+  await rm(root, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
   await mkdir(join(root, "home", "tmp"), { recursive: true });
   await exec("git", [...GIT, "init", "-q"], { cwd: dir });
@@ -46,6 +52,58 @@ export async function createWorkspace(root: string): Promise<Workspace> {
 /** Reopens a workspace created earlier, for the next turn. */
 export function openWorkspace(root: string): Promise<Workspace> {
   return workspaceAt(root);
+}
+
+/** Workspace and agent home as one gzip tar: git history, agent sessions and dependencies included. */
+export async function archiveRoot(root: string): Promise<Buffer> {
+  // Codex unpacks its helper binaries into CODEX_HOME/.tmp on each start: not state, left out.
+  const { stdout } = await execBuffer(
+    "tar",
+    ["-czf", "-", "--exclude", "./home/.codex/.tmp", "--exclude", "./home/.codex/tmp", "-C", root, "."],
+    { maxBuffer: 1024 * 1024 * 1024, encoding: "buffer" },
+  );
+  return stdout;
+}
+
+/** Replaces `root` with the content of an archive made by archiveRoot. */
+export async function restoreRoot(root: string, archive: Buffer): Promise<void> {
+  await rm(root, { recursive: true, force: true });
+  await mkdir(root, { recursive: true });
+  const file = `${root}.restore.tgz`;
+  await writeFile(file, archive);
+  try {
+    await exec("tar", ["-xzf", file, "-C", root, "--no-same-owner"]);
+  } finally {
+    await rm(file, { force: true });
+  }
+  await mkdir(join(root, "home", "tmp"), { recursive: true });
+}
+
+/**
+ * What the web app shows of a saved run, written next to its archive by the worker: the file list and a zip of
+ * the files. The web app only reads these: it never runs git or tar, and may run where neither exists.
+ */
+export const snapshotKeys = (archiveKey: string) => ({
+  list: archiveKey.replace(/\.tgz$/, ".files.json"),
+  zip: archiveKey.replace(/\.tgz$/, ".zip"),
+});
+
+/** `zip` is null when the files are over the zip limit: the list is still shown, file contents are not. */
+export async function snapshotFiles(ws: Workspace): Promise<{ list: WorkspaceFile[]; zip: Uint8Array | null }> {
+  return { list: await listFiles(ws), zip: await zipWorkspace(ws).catch(() => null) };
+}
+
+/** A file's content for display, from its bytes. */
+export function fileContent(path: string, bytes: Uint8Array): FileContent {
+  const head = bytes.subarray(0, Math.min(bytes.length, MAX_FILE_BYTES));
+  if (head.subarray(0, 8000).includes(0)) return { kind: "binary", path, size: bytes.length };
+  return {
+    kind: "text",
+    path,
+    size: bytes.length,
+    text: Buffer.from(head).toString("utf8"),
+    truncated: bytes.length > MAX_FILE_BYTES,
+  };
 }
 
 /** Paths relative to the workspace, so both agents' paths read the same way. */

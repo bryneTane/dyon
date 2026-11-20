@@ -141,6 +141,8 @@ export interface TurnView {
   items: Record<string, TimelineItem[]>;
   results: Record<string, RunTurnResult>;
   done: boolean;
+  /** No worker has taken the turn yet (hosted: a machine is starting). */
+  queued: boolean;
   error?: string;
 }
 
@@ -152,6 +154,7 @@ export function turnView(turn: TurnRecord): TurnView {
     items: turn.items,
     results: turn.results,
     done: turn.state === "done",
+    queued: turn.state === "queued",
     error: turn.error,
   };
 }

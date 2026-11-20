@@ -8,7 +8,7 @@ export const STALL_MS = 60_000;
 export const QUEUE_TIMEOUT_MS = 3 * 60_000;
 
 export const STALLED =
-  "This turn was interrupted: the worker stopped responding. Runs that had not finished were cut short, with the files they had changed so far. A follow-up is accepted.";
+  "This turn was interrupted: the worker stopped responding. A follow-up is accepted, and continues from the files as they were at the end of the last finished turn.";
 export const NOT_STARTED = `No worker started this turn within ${QUEUE_TIMEOUT_MS / 60_000} minutes. A follow-up is accepted.`;
 
 /**
@@ -29,7 +29,9 @@ export function closeStalledTurn(record: ComparisonRecord, now = Date.now()): Co
     ...record,
     status: "idle",
     stopRequested: false,
-    turns: record.turns.map((t) => (t.index === turn.index ? { ...t, state: "done", error: reason } : t)),
+    turns: record.turns.map((t) =>
+      t.index === turn.index ? { ...t, state: "done", claim: undefined, error: reason } : t,
+    ),
   };
 }
 

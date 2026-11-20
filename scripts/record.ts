@@ -19,7 +19,9 @@ if ((vendor !== "claude" && vendor !== "codex") || !out || !prompt) {
 
 const root = await mkdtemp(join(tmpdir(), "dyon-record-"));
 const ws = await createWorkspace(root);
-const spec = defaultCompetitors(await loadCatalog()).find((c) => c.vendor === vendor)!;
+const spec = defaultCompetitors(await loadCatalog(process.env.ANTHROPIC_API_KEY ?? "")).find(
+  (c) => c.vendor === vendor,
+)!;
 const lines: string[] = [];
 if (vendor === "claude") {
   for await (const message of query({ prompt, options: claudeOptions(ws, spec, undefined, new AbortController()) })) {

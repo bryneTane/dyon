@@ -27,6 +27,7 @@ const env = {
   DYON_DATA_DIR: dataDir,
   WORKER_URL: "http://localhost:3001",
   WORKER_SECRET: secrets.worker,
+  DYON_API_URL: "http://localhost:3000",
   RELAY_URL: "http://localhost:3002",
   RELAY_SECRET: secrets.relay,
   NODE_NO_WARNINGS: "1", // node:sqlite prints an experimental warning on every start

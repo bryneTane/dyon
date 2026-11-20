@@ -3,10 +3,11 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
  * Short-lived capability tokens: `<exp>.<sig>`, sig = base64url(HMAC-SHA256(secret, "<purpose>:<subject>:<exp>")).
- * A token proves the web app granted one purpose (join a room, publish to it) on one subject until it expires;
+ * A token proves the web app granted one purpose (join a room, publish to it, act as the worker of a
+ * comparison) on one subject until it expires;
  * it carries no other power.
  */
-export type TokenPurpose = "dyon-room:v1" | "dyon-publish:v1";
+export type TokenPurpose = "dyon-room:v1" | "dyon-publish:v1" | "dyon-worker:v1";
 
 export function signToken(
   secret: string,

@@ -10,9 +10,24 @@ export const dataDir = resolve(/*turbopackIgnore: true*/ process.env.DYON_DATA_D
 /** Postgres (hosted). Without it, a SQLite file in `dataDir`. */
 export const databaseUrl = process.env.DATABASE_URL || null;
 
-/** Where the web app reaches the worker, and the secret both share. Set by `npm run dev` locally. */
-export const workerUrl = (process.env.WORKER_URL ?? "http://localhost:3001").replace(/\/$/, "");
+/**
+ * The secret worker tokens are signed with (web app only), and, locally, the worker process the web app hands
+ * turns to. Hosted, each turn is a Cloud Run Job execution instead (CLOUD_RUN_JOB). Set by `npm run dev` locally.
+ */
 export const workerSecret = process.env.WORKER_SECRET ?? "";
+export const workerUrl = (process.env.WORKER_URL ?? "http://localhost:3001").replace(/\/$/, "");
+export const cloudRun = process.env.CLOUD_RUN_JOB
+  ? { job: process.env.CLOUD_RUN_JOB, project: process.env.GCP_PROJECT_ID ?? "", region: process.env.GCP_REGION ?? "" }
+  : null;
+
+/** Where run files are kept: a Google Cloud Storage bucket when set, else a folder in `dataDir`. */
+export const blobBucket = process.env.BLOB_BUCKET || null;
+
+/** The web app's service account key (JSON), for Cloud Run and Cloud Storage. Unset: the machine's own credentials. */
+export function googleCredentials(): { client_email: string; private_key: string } | undefined {
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  return raw ? JSON.parse(raw) : undefined;
+}
 
 /** The live relay (party/), and the secret its tokens are signed with: held by the web app only. */
 export const relayUrl = (process.env.RELAY_URL ?? "http://localhost:3002").replace(/\/$/, "");

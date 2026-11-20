@@ -14,6 +14,7 @@ export function claudeOptions(
   spec: CompetitorSpec,
   resume: string | undefined,
   abortController: AbortController,
+  apiKey = process.env.ANTHROPIC_API_KEY ?? "",
 ): Options {
   return {
     cwd: ws.dir,
@@ -29,7 +30,7 @@ export function claudeOptions(
     maxTurns: 50,
     maxBudgetUsd: 5,
     env: agentEnv(ws, {
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+      ANTHROPIC_API_KEY: apiKey,
       // Where Claude Code keeps its configuration and transcripts (named in the SDK's own type docs): one per run.
       CLAUDE_CONFIG_DIR: join(ws.home, ".claude"),
     }),
@@ -37,7 +38,12 @@ export function claudeOptions(
 }
 
 /** Claude Code through the Claude Agent SDK. Follow-ups resume the same session. */
-export function createClaudeSession(ws: Workspace, spec: CompetitorSpec, sessionId?: string): AgentSession {
+export function createClaudeSession(
+  ws: Workspace,
+  spec: CompetitorSpec,
+  apiKey: string,
+  sessionId?: string,
+): AgentSession {
   let current = sessionId;
 
   return {
@@ -51,7 +57,10 @@ export function createClaudeSession(ws: Workspace, spec: CompetitorSpec, session
       signal.addEventListener("abort", abort, { once: true });
       let outcome: TurnReport["outcome"] = { status: "error", detail: "The agent ended without a result." };
       try {
-        for await (const message of query({ prompt, options: claudeOptions(ws, spec, current, abortController) })) {
+        for await (const message of query({
+          prompt,
+          options: claudeOptions(ws, spec, current, abortController, apiKey),
+        })) {
           for (const item of mapper.map(message)) emit(item);
         }
         outcome = mapper.state.outcome ?? outcome;

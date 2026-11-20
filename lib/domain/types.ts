@@ -159,6 +159,8 @@ export interface RunState {
   session: { sessionId: string } | { threadId: string } | null;
   cumulative: Cumulative | null;
   model: string | null;
+  /** The run's saved files and agent session after its last finished turn, in storage: any worker continues from it. */
+  archive?: { key: string; turn: number } | null;
 }
 
 export type TurnState = "queued" | "running" | "done";
@@ -170,6 +172,8 @@ export interface TurnRecord {
   startedAt: string;
   /** Last sign of life of the worker running the turn, to close a turn whose worker is gone. */
   heartbeatAt?: string;
+  /** Set when a worker takes the turn: only that worker's progress is accepted, until the turn closes. */
+  claim?: string;
   items: Record<string, TimelineItem[]>;
   results: Record<string, RunTurnResult>;
   /** Turn-level message: interrupted, or failed before the runs could start. */

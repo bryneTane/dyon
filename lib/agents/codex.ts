@@ -16,12 +16,12 @@ const codexVersion = (JSON.parse(readFileSync(join(codexPackageDir, "package.jso
   .version;
 
 /** The client Dyon runs Codex with. Exported so recordings use exactly the same settings. */
-export function codexClient(ws: Workspace): Codex {
+export function codexClient(ws: Workspace, apiKey = process.env.OPENAI_API_KEY ?? ""): Codex {
   // Codex refuses to start when CODEX_HOME does not exist.
   const codexHome = join(ws.home, ".codex");
   mkdirSync(codexHome, { recursive: true });
   return new Codex({
-    apiKey: process.env.OPENAI_API_KEY ?? "",
+    apiKey,
     env: agentEnv(ws, { CODEX_HOME: codexHome }),
     // Without this, each run's Codex home grew to 97 MB (95 MB in .tmp); with it, 2.4 MB (measured 2026-11-20).
     config: { features: { plugins: false } },
@@ -46,8 +46,13 @@ export function codexThreadOptions(ws: Workspace, spec: CompetitorSpec): ThreadO
 }
 
 /** Codex through the Codex SDK. Follow-ups resume the same thread. */
-export function createCodexSession(ws: Workspace, spec: CompetitorSpec, threadId?: string): AgentSession {
-  const codex = codexClient(ws);
+export function createCodexSession(
+  ws: Workspace,
+  spec: CompetitorSpec,
+  apiKey: string,
+  threadId?: string,
+): AgentSession {
+  const codex = codexClient(ws, apiKey);
   const thread = threadId
     ? codex.resumeThread(threadId, codexThreadOptions(ws, spec))
     : codex.startThread(codexThreadOptions(ws, spec));
