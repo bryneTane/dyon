@@ -10,3 +10,4 @@ next-env.d.ts
 # Relay: local secret and wrangler state
 .dev.vars
 .wrangler/
+.vercel

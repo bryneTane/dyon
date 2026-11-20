@@ -1,0 +1,12 @@
+# Sent to Cloud Build: only what the worker image needs (no keys, no local data).
+*
+!package.json
+!package-lock.json
+!party/
+party/*
+!party/package.json
+!tsconfig.json
+!lib/**
+!worker/**
+!Dockerfile.worker
+!cloudbuild.yaml

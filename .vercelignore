@@ -1,0 +1,10 @@
+# Never uploaded with a deployment from this folder.
+.env*
+!.env.example
+.dyon
+.claude
+.specify
+specs
+CLAUDE.md
+AGENTS.md
+party/.dev.vars
