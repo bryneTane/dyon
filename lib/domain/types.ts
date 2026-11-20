@@ -17,8 +17,8 @@ interface ItemBase {
 
 /**
  * One step of an agent run, shown as a row in the timeline. These are Dyon's display categories, not a copy
- * of what an agent sends: each agent's adapter maps every event it receives to one of them, unknown tools to
- * `tool` and unknown event types to `notice`, so nothing an agent does is dropped silently.
+ * of what an agent sends: each agent's adapter maps the events it handles on purpose to one of them, any other tool
+ * to `tool` and any other event to `event`, so nothing an agent does is dropped silently.
  */
 export type TimelineItem = ItemBase &
   (
@@ -33,6 +33,8 @@ export type TimelineItem = ItemBase &
     | { kind: "error"; text: string }
     /** Something the agent reports that is not an action: a retry, a rate limit, a context compaction, a refusal. */
     | { kind: "notice"; label: string; text: string }
+    /** Anything else the agent sent, under the agent's own name: kept visible, never interpreted. */
+    | { kind: "event"; name: string; detail: string }
     | { kind: "check"; command: string; passed: boolean; exitCode: number | null; durationMs: number; timedOut: boolean }
   );
 
