@@ -96,6 +96,21 @@ describe("tools", () => {
 });
 
 describe("messages that are not actions", () => {
+  it("shows each stretch of thinking as one step, updated with the latest estimate", () => {
+    const thinking = (n: number) => ({
+      type: "system",
+      subtype: "thinking_tokens",
+      estimated_tokens: n,
+      estimated_tokens_delta: 50,
+    });
+    const reply = { type: "assistant", message: { content: [{ type: "text", text: "Done." }] } };
+    const { items } = mapAll([thinking(50), thinking(100), reply, thinking(30)]);
+    const steps = items.filter((i) => i.kind === "reasoning");
+    expect(steps.map((i) => i.id)).toEqual([steps[0].id, steps[0].id, steps[2].id]);
+    expect(steps[2].id).not.toBe(steps[0].id);
+    expect(steps[1]).toMatchObject({ text: expect.stringContaining("About 100 thinking tokens") });
+  });
+
   it("shows retries, compactions, refusals and denied permissions as notices", () => {
     const { items } = mapAll([
       { type: "system", subtype: "api_retry", attempt: 2, max_retries: 10, retry_delay_ms: 4000, error_status: 529 },

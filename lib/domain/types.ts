@@ -67,6 +67,20 @@ export interface Cumulative {
 export type Outcome =
   { status: "completed" } | { status: "error"; detail: string } | { status: "aborted"; detail?: string };
 
+/** A file of a run's workspace, as the Files tab lists it. */
+export interface WorkspaceFile {
+  path: string;
+  size: number;
+  /** Compared with the workspace at the start of the latest turn. */
+  change: "added" | "modified" | null;
+  added: number | null;
+  removed: number | null;
+}
+
+export type FileContent =
+  | { kind: "text"; path: string; size: number; text: string; truncated: boolean }
+  | { kind: "binary"; path: string; size: number };
+
 export interface DiffFile {
   path: string;
   change: "added" | "modified" | "deleted";
@@ -191,7 +205,7 @@ export interface ComparisonRecord {
 /** What a running turn emits, as it happens. */
 export type StreamEvent =
   | { type: "comparison"; info: ComparisonInfo }
-  | { type: "turn_start"; turnIndex: number; prompt: string }
+  | { type: "turn_start"; turnIndex: number; prompt: string; startedAt: string }
   | { type: "run_meta"; runId: string; model?: string; version?: string }
   | { type: "item"; runId: string; turnIndex: number; item: TimelineItem }
   | { type: "run_done"; runId: string; turnIndex: number; result: RunTurnResult }

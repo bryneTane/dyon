@@ -22,7 +22,7 @@ describe("applyEvent", () => {
 
   it("adds steps, and replaces a step sent again under the same id", () => {
     const r = apply(
-      { type: "turn_start", turnIndex: 0, prompt: "do it" },
+      { type: "turn_start", turnIndex: 0, prompt: "do it", startedAt: "t" },
       {
         type: "item",
         runId: "a-1",
@@ -57,13 +57,22 @@ describe("applyEvent", () => {
     expect(r.status).toBe("idle");
   });
 
+  it("adds a follow-up turn it did not know yet when the turn starts", () => {
+    const r = apply({ type: "turn_start", turnIndex: 1, prompt: "and now?", startedAt: "2026-01-01T00:00:00Z" });
+    expect(r.turns.map((t) => [t.index, t.prompt, t.state])).toEqual([
+      [0, "do it", "queued"],
+      [1, "and now?", "running"],
+    ]);
+    expect(r.status).toBe("busy");
+  });
+
   it("keeps a turn-level error on the current turn", () => {
     expect(apply({ type: "fatal", message: "Codex: no key." }).turns[0].error).toBe("Codex: no key.");
   });
 });
 
 describe("followEvent", () => {
-  const event: StreamEvent = { type: "turn_start", turnIndex: 0, prompt: "do it" };
+  const event: StreamEvent = { type: "turn_start", turnIndex: 0, prompt: "do it", startedAt: "t" };
 
   it("applies the next event and moves seq", () => {
     const { record, gap } = followEvent(start(), { seq: 1, event });

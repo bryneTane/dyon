@@ -31,8 +31,18 @@ export function applyEvent(record: ComparisonRecord, event: StreamEvent): Compar
   switch (event.type) {
     case "comparison":
       return { ...record, info: event.info };
-    case "turn_start":
-      return { ...turn(event.turnIndex, (t) => ({ ...t, state: "running" })), status: "busy" };
+    case "turn_start": {
+      // A follow-up added after this record was loaded: the event brings the turn.
+      const known = record.turns.some((t) => t.index === event.turnIndex);
+      const withTurn = known
+        ? record
+        : { ...record, turns: [...record.turns, newTurn(event.turnIndex, event.prompt, event.startedAt)] };
+      return {
+        ...withTurn,
+        status: "busy",
+        turns: withTurn.turns.map((t) => (t.index === event.turnIndex ? { ...t, state: "running" } : t)),
+      };
+    }
     case "run_meta":
       return { ...record, meta: { ...record.meta, [event.runId]: { model: event.model, version: event.version } } };
     case "item":

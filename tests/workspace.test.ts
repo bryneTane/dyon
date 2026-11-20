@@ -1,13 +1,24 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   agentEnv,
   createWorkspace,
+  listFiles,
   markTurnStart,
   openWorkspace,
+  readWorkspaceFile,
   relativePath,
   workspaceDiff,
 } from "@/lib/server/workspace";
@@ -91,5 +102,29 @@ describe("workspaceDiff", () => {
     expect(diff.patch).toContain("+three");
     expect(diff.truncated).toBe(false);
     expect(git(ws.dir, "status", "--porcelain")).toBe(before);
+  });
+});
+
+describe("files", () => {
+  it("lists the workspace files, reads them, and refuses anything outside the workspace", async () => {
+    const ws = await createWorkspace(join(base, "run-6"));
+    await markTurnStart(ws);
+    writeFileSync(join(ws.dir, "a.js"), "x\n");
+    mkdirSync(join(ws.dir, "node_modules"));
+    writeFileSync(join(ws.dir, "node_modules/dep.js"), "y\n");
+    writeFileSync(join(base, "secret.txt"), "secret\n");
+    symlinkSync(join(base, "secret.txt"), join(ws.dir, "link.txt"));
+
+    const files = await listFiles(ws);
+    expect(files.map((f) => [f.path, f.change])).toEqual([["a.js", "added"]]);
+    expect(await readWorkspaceFile(ws, "a.js")).toEqual({
+      kind: "text",
+      path: "a.js",
+      size: 2,
+      text: "x\n",
+      truncated: false,
+    });
+    expect(await readWorkspaceFile(ws, "link.txt")).toBeNull();
+    expect(await readWorkspaceFile(ws, "../secret.txt")).toBeNull();
   });
 });

@@ -1,9 +1,10 @@
 import "server-only";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { zipSync } from "fflate";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { DiffFile, RunTurnResult } from "@/lib/domain/types";
+import type { DiffFile, FileContent, RunTurnResult, WorkspaceFile } from "@/lib/domain/types";
 
 const exec = promisify(execFile);
 // Dyon's own git calls: a fixed identity, and no hooks or settings the agent could have written.
@@ -118,4 +119,77 @@ export async function workspaceDiff(ws: Workspace): Promise<NonNullable<RunTurnR
   } finally {
     await done();
   }
+}
+
+const MAX_FILE_BYTES = 256 * 1024;
+const MAX_ZIP_BYTES = 100 * 1024 * 1024;
+
+/** Files in the workspace now (dependency folders excluded), each marked if the latest turn changed it. */
+export async function listFiles(ws: Workspace): Promise<WorkspaceFile[]> {
+  const { stdout } = await exec("git", [...GIT, "ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
+    cwd: ws.dir,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  const changed = new Map((await workspaceDiff(ws).catch(() => null))?.files.map((f) => [f.path, f]) ?? []);
+  const paths = [...new Set(stdout.split("\0").filter(Boolean))].sort();
+  const files = await Promise.all(
+    paths.map(async (path): Promise<WorkspaceFile | null> => {
+      // Same rule as reading: a link that leads outside the workspace is not listed.
+      const resolved = await resolveInside(ws, path).catch(() => null);
+      if (!resolved) return null;
+      const info = await stat(resolved);
+      const diff = changed.get(path);
+      const change = diff && diff.change !== "deleted" ? diff.change : null;
+      return { path, size: info.size, change, added: diff?.added ?? null, removed: diff?.removed ?? null };
+    }),
+  );
+  return files.filter((f): f is WorkspaceFile => f !== null);
+}
+
+/** Absolute path of a workspace file, or null if it resolves outside the workspace (`..`, symlinks) or is not a file. */
+async function resolveInside(ws: Workspace, path: string): Promise<string | null> {
+  const resolved = await realpath(join(ws.dir, path)).catch(() => null);
+  if (!resolved || !resolved.startsWith(`${ws.dirReal}/`)) return null;
+  return (await stat(resolved)).isFile() ? resolved : null;
+}
+
+export async function readRawFile(ws: Workspace, path: string): Promise<Buffer | null> {
+  const resolved = await resolveInside(ws, path);
+  return resolved ? readFile(resolved) : null;
+}
+
+/** Reads one file for display (first 256 KB), refusing any path outside the workspace. */
+export async function readWorkspaceFile(ws: Workspace, path: string): Promise<FileContent | null> {
+  const resolved = await resolveInside(ws, path);
+  if (!resolved) return null;
+  const info = await stat(resolved);
+  const handle = await open(resolved, "r");
+  try {
+    const buffer = Buffer.alloc(Math.min(info.size, MAX_FILE_BYTES));
+    await handle.read(buffer, 0, buffer.length, 0);
+    if (buffer.subarray(0, 8000).includes(0)) return { kind: "binary", path, size: info.size };
+    return {
+      kind: "text",
+      path,
+      size: info.size,
+      text: buffer.toString("utf8"),
+      truncated: info.size > MAX_FILE_BYTES,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+/** The listed files as a zip archive, up to 100 MB. */
+export async function zipWorkspace(ws: Workspace): Promise<Uint8Array> {
+  const files = await listFiles(ws);
+  const total = files.reduce((sum, f) => sum + f.size, 0);
+  if (total > MAX_ZIP_BYTES)
+    throw new Error(`Workspace too large to zip (${Math.round(total / 1024 / 1024)} MB, limit 100 MB).`);
+  const entries: Record<string, Uint8Array> = {};
+  for (const file of files) {
+    const raw = await readRawFile(ws, file.path);
+    if (raw) entries[file.path] = new Uint8Array(raw);
+  }
+  return zipSync(entries, { level: 6 });
 }

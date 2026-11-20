@@ -48,7 +48,7 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
     ...record,
     turns: record.turns.map((t) => (t.index === turnIndex ? { ...t, bootId } : t)),
   };
-  emit({ type: "turn_start", turnIndex, prompt: turn.prompt });
+  emit({ type: "turn_start", turnIndex, prompt: turn.prompt, startedAt: turn.startedAt });
   const abort = new AbortController();
   const history: HistoryEntry[] = [];
   await Promise.all(

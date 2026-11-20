@@ -8,6 +8,7 @@ import { slotClass } from "./competitors";
 import type { TurnView } from "./useComparison";
 import { Timeline } from "./Timeline";
 import { PatchView } from "./Code";
+import { FilesPanel } from "./FilesPanel";
 import { RunStatus } from "./RunStatus";
 import { formatMs, formatTokens, formatUsd } from "./format";
 
@@ -141,7 +142,7 @@ export function AgentColumn(props: {
   const { comparison, competitor, runs, turn, meta, initialRunId } = props;
   const naming = useNaming(comparison);
   const [selected, setSelected] = useState(initialRunId ?? runs[0]?.runId);
-  const [tab, setTab] = useState<"timeline" | "changes">("timeline");
+  const [tab, setTab] = useState<"timeline" | "changes" | "files">("timeline");
   const run = runs.find((r) => r.runId === selected) ?? runs[0];
   const result = run ? turn.results[run.runId] : undefined;
   const live = !turn.done && !result;
@@ -176,10 +177,20 @@ export function AgentColumn(props: {
         <button className={tab === "changes" ? "on" : ""} onClick={() => setTab("changes")} disabled={!result}>
           Changes {result?.diff && <span className="count">{result.diff.files.length}</span>}
         </button>
+        <button className={tab === "files" ? "on" : ""} onClick={() => setTab("files")}>
+          Files
+        </button>
       </nav>
       <div className="column-body">
         {tab === "timeline" && <Timeline items={items} live={live} />}
         {tab === "changes" && result && <Changes result={result} />}
+        {tab === "files" && run && (
+          <FilesPanel
+            comparisonId={comparison.id}
+            runId={run.runId}
+            version={Object.keys(turn.results).length + (turn.done ? 1 : 0)}
+          />
+        )}
       </div>
       {result && <RunSummary result={result} />}
     </section>

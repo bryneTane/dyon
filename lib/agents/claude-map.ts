@@ -35,6 +35,9 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
 
   const notice = (label: string, text: string): TimelineItem => ({ id: newId(), kind: "notice", label, text });
 
+  /** The step that shows the current stretch of thinking; a new one starts after the agent's next message. */
+  let thinkingId: string | undefined;
+
   /** The generic path: anything Dyon does not handle on purpose stays visible, under the vendor's own name. */
   const event = (name: string, value: object): TimelineItem => ({
     id: newId(),
@@ -91,6 +94,7 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
   }
 
   function map(message: SDKMessage): TimelineItem[] {
+    if (message.type === "assistant" || message.type === "user") thinkingId = undefined;
     switch (message.type) {
       case "assistant":
         return assistant(message);
@@ -139,6 +143,16 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
           ),
         ];
       }
+      case "thinking_tokens":
+        // Running estimates while the model thinks, without the text: one step per stretch, updated in place.
+        thinkingId ??= newId();
+        return [
+          {
+            id: thinkingId,
+            kind: "reasoning",
+            text: `About ${message.estimated_tokens.toLocaleString("en-US")} thinking tokens (estimate reported by Claude Code, which does not share the text).`,
+          },
+        ];
       case "permission_denied":
         return [notice("Permission denied", `${message.tool_name}: ${message.message}`)];
       case "model_refusal_fallback":

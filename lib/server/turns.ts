@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { isValidSpec, VENDOR_LABELS, type Catalog } from "@/lib/domain/catalog";
-import { newRecord } from "@/lib/domain/record";
+import { newRecord, newTurn } from "@/lib/domain/record";
 import type { CreateBody } from "@/lib/domain/schemas";
 import { errorText } from "@/lib/domain/text";
 import type { ComparisonInfo } from "@/lib/domain/types";
@@ -36,6 +36,34 @@ export function createComparison(body: CreateBody, catalog: Catalog): { id: stri
   start(info.id, 0);
   return { id: info.id };
 }
+
+/**
+ * Adds a follow-up to every run: each agent continues its own session in its own workspace. Refused while a
+ * turn is queued or running. The check and the new turn are written in one transaction, so two follow-ups
+ * sent at once cannot both start.
+ */
+export function addTurn(id: string, prompt: string): { turnIndex: number } | { error: string; status: number } {
+  let turnIndex = -1;
+  try {
+    store().update(id, (record) => {
+      if (record.status === "busy") throw new Busy();
+      turnIndex = record.turns.length;
+      return {
+        ...record,
+        status: "busy",
+        stopRequested: false,
+        turns: [...record.turns, newTurn(turnIndex, prompt, new Date().toISOString())],
+      };
+    });
+  } catch (error) {
+    if (error instanceof Busy) return { error: "Wait for the current turn to finish.", status: 409 };
+    return { error: errorText(error), status: 404 };
+  }
+  start(id, turnIndex);
+  return { turnIndex };
+}
+
+class Busy extends Error {}
 
 /** Runs a turn in the background. A failure that escapes the runner is saved on the turn, never lost. */
 function start(id: string, turnIndex: number): void {

@@ -140,7 +140,7 @@ export function TurnBlock(props: {
             })}
           </div>
           <button
-            className={`text-button ${activeHere && inspect?.runId === null ? "on" : ""}`}
+            className={`side-by-side ${activeHere && inspect?.runId === null ? "on" : ""}`}
             onClick={() => onInspect({ turnIndex: turn.index, runId: null })}
           >
             <Columns2 size={14} /> View side by side

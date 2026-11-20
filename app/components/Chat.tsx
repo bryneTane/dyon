@@ -2,7 +2,15 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, Plus } from "lucide-react";
-import { competitorLabel, defaultCompetitors, VENDOR_LABELS, VENDORS, type Catalog } from "@/lib/domain/catalog";
+import { CompetitorPicker } from "./CompetitorPicker";
+import {
+  defaultCompetitors,
+  isValidSpec,
+  VENDOR_LABELS,
+  VENDORS,
+  type Catalog,
+  type CompetitorSpec,
+} from "@/lib/domain/catalog";
 import { CatalogProvider } from "./naming";
 import { turnView, useComparison } from "./useComparison";
 import { TurnBlock, type InspectTarget } from "./TurnBlock";
@@ -53,6 +61,8 @@ export function Chat() {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [sending, setSending] = useState(false);
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
+  // Null until the user changes them: then each agent's own default model.
+  const [picked, setPicked] = useState<CompetitorSpec[] | null>(null);
   const { record, error, setError, open, reset } = useComparison();
   const textareaRef = useAutoHeight(prompt);
   const endRef = useRef<HTMLDivElement>(null);
@@ -60,6 +70,13 @@ export function Chat() {
   const started = Boolean(record);
   const comparison = record?.info ?? null;
   const turns = record?.turns.map(turnView) ?? [];
+
+  // After a refresh or on an opened link, show the latest turn side by side, as right after sending.
+  const openedId = record?.info.id;
+  const turnCount = record?.turns.length ?? 0;
+  useEffect(() => {
+    if (openedId && turnCount > 0) setInspect((current) => current ?? { turnIndex: turnCount - 1, runId: null });
+  }, [openedId, turnCount]);
 
   useEffect(() => {
     fetch("/api/catalog")
@@ -72,10 +89,34 @@ export function Chat() {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns.length]);
 
-  const canSend = prompt.trim().length > 0 && !running && !started;
+  const competitors = picked ?? (catalog ? defaultCompetitors(catalog) : []);
+  const canSend = prompt.trim().length > 0 && !running && (started || competitors.length > 0);
+
+  /** A follow-up: every agent continues its own session, in its own workspace. */
+  async function followUp() {
+    if (!record) return;
+    setSending(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/comparisons/${record.info.id}/turns`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: prompt.trim() }),
+      });
+      const body = (await response.json().catch(() => null)) as { turnIndex?: number; error?: string } | null;
+      if (!response.ok || body?.turnIndex === undefined) return setError(body?.error ?? `HTTP ${response.status}`);
+      setPrompt("");
+      setInspect({ turnIndex: body.turnIndex, runId: null });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function submit() {
     if (!canSend) return;
+    if (started) return followUp();
     setSending(true);
     setError(null);
     try {
@@ -84,10 +125,11 @@ export function Chat() {
       setCatalog(catalog);
       const missing = VENDORS.flatMap((v) => (catalog[v].error ? [`${VENDOR_LABELS[v]}: ${catalog[v].error}`] : []));
       if (missing.length) return setError(`${missing.join(" ")} Try again in a moment.`);
+      const chosen = picked?.filter((c) => isValidSpec(c, catalog)) ?? defaultCompetitors(catalog);
       const response = await fetch("/api/comparisons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim(), competitors: defaultCompetitors(catalog) }),
+        body: JSON.stringify({ prompt: prompt.trim(), competitors: chosen }),
       });
       const body = (await response.json().catch(() => null)) as { id?: string; error?: string } | null;
       if (!response.ok || !body?.id) return setError(body?.error ?? `HTTP ${response.status}`);
@@ -108,7 +150,6 @@ export function Chat() {
     setPrompt("");
   }
 
-  const competitors = catalog ? defaultCompetitors(catalog) : [];
   const composer = (
     <div className="composer">
       <textarea
@@ -123,14 +164,26 @@ export function Chat() {
             void submit();
           }
         }}
-        placeholder="Describe a coding task for the agents…"
+        placeholder={
+          !started
+            ? "Describe a coding task for the agents…"
+            : running
+              ? "The agents are working. You can write your follow-up and send it when they finish."
+              : "Send a follow-up to every agent…"
+        }
       />
       <div className="composer-bar">
-        <span className="bar-summary">
-          {catalog ? competitors.map((c) => competitorLabel(c, catalog)).join(" vs ") : "Loading the agents' models…"}
-        </span>
+        {started && comparison ? (
+          <span className="bar-summary">
+            Goes to all {comparison.runs.length} runs; each keeps its session and files.
+          </span>
+        ) : catalog ? (
+          <CompetitorPicker catalog={catalog} value={competitors} onChange={setPicked} />
+        ) : (
+          <span className="bar-summary">Loading the agents&apos; models…</span>
+        )}
         <span className="spacer" />
-        {!running && competitors.length > 0 && (
+        {!running && !started && competitors.length > 0 && (
           <span className="hint">{`${competitors.length} run${competitors.length > 1 ? "s" : ""}`}</span>
         )}
         <button className="send" onClick={() => void submit()} disabled={!canSend} title="Send (Enter)">
@@ -164,15 +217,12 @@ export function Chat() {
                 </p>
                 {composer}
                 {error && <div className="error-box">{error}</div>}
+                <div className="examples-label">Or start from an example task</div>
                 <div className="examples">
                   {EXAMPLES.map((example) => (
-                    <button
-                      key={example.title}
-                      className="example"
-                      title={example.summary}
-                      onClick={() => setPrompt(example.prompt)}
-                    >
-                      <span>{example.title}</span>
+                    <button key={example.title} className="example" onClick={() => setPrompt(example.prompt)}>
+                      <span className="example-title">{example.title}</span>
+                      <span className="example-summary">{example.summary}</span>
                     </button>
                   ))}
                 </div>
@@ -193,6 +243,7 @@ export function Chat() {
                 <div ref={endRef} />
               </main>
             )}
+            {started && <footer className="composer-dock">{composer}</footer>}
           </div>
           {inspect && comparison && turns[inspect.turnIndex] && (
             <Inspector

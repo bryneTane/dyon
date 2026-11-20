@@ -107,10 +107,47 @@ function Expandable({
   );
 }
 
-function Detail({ item }: { item: TimelineItem }) {
+/** Rendered content cut to a fixed height, with a toggle when it is longer. */
+function Clamped({ children, maxHeight = 160 }: { children: React.ReactNode; maxHeight?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [long, setLong] = useState(false);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Measured, not guessed: a message grows while it streams, and code blocks or lists change its height.
+    const measure = () => setLong(el.scrollHeight > maxHeight + 24);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [maxHeight]);
+  const cut = long && !open;
+  return (
+    <div>
+      <div ref={ref} className={cut ? "clamped" : undefined} style={cut ? { maxHeight } : undefined}>
+        {children}
+      </div>
+      {long && (
+        <button className="more" onClick={() => setOpen((v) => !v)}>
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Detail({ item, final }: { item: TimelineItem; final: boolean }) {
   switch (item.kind) {
     case "message":
-      return <Markdown text={item.text} />;
+      // The agent's answer stays whole; the messages it wrote along the way are cut when long.
+      return final ? (
+        <Markdown text={item.text} />
+      ) : (
+        <Clamped>
+          <Markdown text={item.text} />
+        </Clamped>
+      );
     case "reasoning":
       return <Expandable className="reasoning" text={item.text} lines={2} />;
     case "command":
@@ -160,8 +197,11 @@ function Detail({ item }: { item: TimelineItem }) {
       return <div className="bad">{item.text}</div>;
     case "notice":
       return (
-        <div className="step-title">
-          <span className="warn">{item.label}</span> <span>{item.text}</span>
+        <div>
+          <span className="warn">{item.label}</span>
+          <Clamped maxHeight={60}>
+            <div className="notice-text">{item.text}</div>
+          </Clamped>
         </div>
       );
     case "event":
@@ -201,7 +241,7 @@ function Meta({ item }: { item: TimelineItem }) {
   );
 }
 
-function Step({ item }: { item: TimelineItem }) {
+function Step({ item, final }: { item: TimelineItem; final: boolean }) {
   return (
     <div className={`step step-${item.kind}`}>
       <span className="step-time" title="Time since the start of the turn">
@@ -209,7 +249,7 @@ function Step({ item }: { item: TimelineItem }) {
       </span>
       <StepIcon item={item} />
       <div className="step-body">
-        <Detail item={item} />
+        <Detail item={item} final={final} />
         {item.output && item.kind !== "message" && (
           <Expandable
             className="output"
@@ -225,6 +265,8 @@ function Step({ item }: { item: TimelineItem }) {
 }
 
 export function Timeline({ items, live }: { items: TimelineItem[]; live: boolean }) {
+  // The run's answer: its last message, once the run is over.
+  const finalMessageId = [...items].reverse().find((i) => i.kind === "message")?.id;
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -244,7 +286,7 @@ export function Timeline({ items, live }: { items: TimelineItem[]; live: boolean
         </div>
       )}
       {items.map((item) => (
-        <Step key={item.id} item={item} />
+        <Step key={item.id} item={item} final={!live && item.id === finalMessageId} />
       ))}
     </div>
   );

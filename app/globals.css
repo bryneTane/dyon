@@ -258,16 +258,23 @@ code,
   margin-bottom: 28px;
   font-size: 15px;
 }
+.examples-label {
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--dimmed);
+}
 .examples {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 8px;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 .example {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 4px;
   background: none;
   border: 1px solid var(--border);
   padding: 6px 12px;
@@ -277,6 +284,13 @@ code,
 .example:hover {
   color: var(--foreground);
   border-color: var(--border-strong);
+}
+.example-title {
+  color: var(--foreground);
+}
+.example-summary {
+  font-size: 12px;
+  color: var(--dimmed);
 }
 .example-tag {
   font-size: 11px;
@@ -1010,6 +1024,12 @@ a.ghost {
 .step-body {
   min-width: 0;
   font-size: 13px;
+  /* Long commands, paths or notices wrap inside the column instead of scrolling it sideways. */
+  overflow-wrap: anywhere;
+}
+.notice-text {
+  white-space: pre-wrap;
+  color: var(--muted);
 }
 .step-title {
   display: flex;
@@ -1064,6 +1084,11 @@ a.ghost {
 }
 .more:hover {
   color: var(--foreground);
+}
+/* Long agent messages: cut, fading out above the "Show more" toggle */
+.clamped {
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
 }
 
 /* Markdown in agent messages */
@@ -1740,4 +1765,30 @@ a.ghost {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+}
+
+/* Opens every run of a turn side by side */
+.side-by-side {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--foreground);
+  font-size: 13px;
+  cursor: pointer;
+}
+.side-by-side:hover,
+.side-by-side.on {
+  background: var(--elevated);
+}
+
+/* Code in the Changes and Files tabs: a little smaller than the text around it */
+.patch-files,
+.file-view {
+  --diffs-font-size: 12px;
+  --diffs-line-height: 18px;
 }
