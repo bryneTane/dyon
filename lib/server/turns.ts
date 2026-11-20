@@ -2,12 +2,13 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { isValidSpec, VENDOR_LABELS, type Catalog } from "@/lib/domain/catalog";
 import { newRecord, newTurn } from "@/lib/domain/record";
-import type { CreateBody } from "@/lib/domain/schemas";
+import type { CreateBody, UserKeys } from "@/lib/domain/schemas";
 import { closeStalledTurn } from "@/lib/domain/stall";
 import { errorText } from "@/lib/domain/text";
 import type { ComparisonInfo, ComparisonRecord } from "@/lib/domain/types";
 import { dispatchCatalog, dispatchTurn } from "./dispatch";
 import { isId } from "./ids";
+import { encryptKeys, missingKeysMessage } from "./keys";
 import { store } from "./store";
 
 /** A catalog older than this is read again from the agents, so new models show up. */
@@ -51,6 +52,11 @@ export async function loadRecord(id: string): Promise<ComparisonRecord | null> {
 
 /** Saves a new comparison with its first turn queued, hands the turn to the worker, returns its id. */
 export async function createComparison(body: CreateBody): Promise<{ id: string } | { error: string }> {
+  const missing = missingKeysMessage(
+    body.competitors.map((c) => c.vendor),
+    body.keys,
+  );
+  if (missing) return { error: missing };
   const catalog = await storedCatalog();
   for (const spec of body.competitors) {
     const { vendor, model } = spec;
@@ -74,7 +80,9 @@ export async function createComparison(body: CreateBody): Promise<{ id: string }
       })),
     ),
   };
-  await (await store()).insert(newRecord(info, body.prompt, new Date().toISOString()));
+  const record = newRecord(info, body.prompt, new Date().toISOString());
+  record.turns[0].keys = encryptKeys(body.keys);
+  await (await store()).insert(record);
   await dispatch(info.id, 0);
   return { id: info.id };
 }
@@ -87,8 +95,16 @@ export async function createComparison(body: CreateBody): Promise<{ id: string }
 export async function addTurn(
   id: string,
   prompt: string,
+  keys: UserKeys,
 ): Promise<{ turnIndex: number } | { error: string; status: number }> {
-  if (!(await loadRecord(id))) return { error: "This comparison does not exist.", status: 404 };
+  const existing = await loadRecord(id);
+  if (!existing) return { error: "This comparison does not exist.", status: 404 };
+  const missing = missingKeysMessage(
+    existing.info.competitors.map((c) => c.vendor),
+    keys,
+  );
+  if (missing) return { error: missing, status: 400 };
+  const sealed = encryptKeys(keys);
   let turnIndex = -1;
   try {
     await (
@@ -100,7 +116,7 @@ export async function addTurn(
         ...record,
         status: "busy",
         stopRequested: false,
-        turns: [...record.turns, newTurn(turnIndex, prompt, new Date().toISOString())],
+        turns: [...record.turns, { ...newTurn(turnIndex, prompt, new Date().toISOString()), keys: sealed }],
       };
     });
   } catch (error) {

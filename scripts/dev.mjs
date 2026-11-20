@@ -18,6 +18,7 @@ const secretsFile = join(dataDir, "dev-secrets.json");
 const secrets = existsSync(secretsFile) ? JSON.parse(readFileSync(secretsFile, "utf8")) : {};
 secrets.worker ??= randomBytes(32).toString("hex");
 secrets.relay ??= randomBytes(32).toString("hex");
+secrets.keys ??= randomBytes(32).toString("hex");
 writeFileSync(secretsFile, JSON.stringify(secrets), { mode: 0o600 });
 // The relay reads its secret from party/.dev.vars, as `wrangler secret put` sets it once deployed.
 writeFileSync(join(root, "party", ".dev.vars"), `PARTYKIT_SECRET=${secrets.relay}\n`, { mode: 0o600 });
@@ -30,6 +31,7 @@ const env = {
   DYON_API_URL: "http://localhost:3000",
   RELAY_URL: "http://localhost:3002",
   RELAY_SECRET: secrets.relay,
+  KEYS_SECRET: secrets.keys,
   NODE_NO_WARNINGS: "1", // node:sqlite prints an experimental warning on every start
 };
 

@@ -30,7 +30,7 @@ export function closeStalledTurn(record: ComparisonRecord, now = Date.now()): Co
     status: "idle",
     stopRequested: false,
     turns: record.turns.map((t) =>
-      t.index === turn.index ? { ...t, state: "done", claim: undefined, error: reason } : t,
+      t.index === turn.index ? { ...t, state: "done", claim: undefined, keys: undefined, error: reason } : t,
     ),
   };
 }

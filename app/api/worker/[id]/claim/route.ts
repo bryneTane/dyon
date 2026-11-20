@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ClaimResponse } from "@/lib/domain/worker-protocol";
+import { decryptKeys, resolveKeys } from "@/lib/server/keys";
 import { roomUrl, signPublishToken } from "@/lib/server/realtime";
 import { store } from "@/lib/server/store";
 import { workerRoute } from "@/lib/server/worker-auth";
@@ -16,6 +17,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/worker/[id]
   const { id } = route;
   const claim = randomUUID();
   let turnIndex = -1;
+  let sealed: string | undefined;
   try {
     const record = await (
       await store()
@@ -23,11 +25,15 @@ export async function POST(request: Request, ctx: RouteContext<"/api/worker/[id]
       const turn = r.turns.find((t) => t.state === "queued");
       if (!turn) throw new NoQueuedTurn();
       turnIndex = turn.index;
+      sealed = turn.keys;
       const now = new Date().toISOString();
       return {
         ...r,
         turns: r.turns.map((t) =>
-          t.index === turnIndex ? { ...t, state: "running", startedAt: now, heartbeatAt: now, claim } : t,
+          // The user's keys leave the database here, in the same transaction: the worker gets them once.
+          t.index === turnIndex
+            ? { ...t, state: "running", startedAt: now, heartbeatAt: now, claim, keys: undefined }
+            : t,
         ),
       };
     });
@@ -35,7 +41,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/worker/[id]
       record,
       turnIndex,
       claim,
-      keys: { anthropic: process.env.ANTHROPIC_API_KEY, openai: process.env.OPENAI_API_KEY },
+      keys: resolveKeys(sealed ? decryptKeys(sealed) : {}),
       room: { url: roomUrl(id), token: signPublishToken(id) },
     };
     return Response.json(body);

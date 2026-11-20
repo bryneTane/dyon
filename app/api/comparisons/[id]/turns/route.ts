@@ -10,7 +10,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/comparisons
   if (!isId(id)) return Response.json({ error: "This comparison does not exist." }, { status: 404 });
   const parsed = followUpSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: firstIssue(parsed.error) }, { status: 400 });
-  const added = await addTurn(id, parsed.data.prompt);
+  const added = await addTurn(id, parsed.data.prompt, parsed.data.keys);
   if ("error" in added) return Response.json({ error: added.error }, { status: added.status });
   return Response.json(added, { status: 201 });
 }

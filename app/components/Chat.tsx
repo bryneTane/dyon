@@ -12,6 +12,7 @@ import {
   type CompetitorSpec,
 } from "@/lib/domain/catalog";
 import { EXAMPLES } from "./examples";
+import { KeysButton, loadKeys, useKeyRequirements, type UserKeys } from "./KeysButton";
 import { CatalogProvider, NamesHidden } from "./naming";
 import { Scoreboard, type TaskSetup } from "./Scoreboard";
 import { VerdictBox } from "./VerdictBox";
@@ -47,6 +48,10 @@ export function Chat() {
   const [blind, setBlind] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [showScoreboard, setShowScoreboard] = useState(false);
+  // The user's own API keys, kept in this tab only and sent with each turn.
+  const [keys, setKeys] = useState<UserKeys>({});
+  const [keysOpen, setKeysOpen] = useState(false);
+  useEffect(() => setKeys(loadKeys()), []);
   const { record, error, setError, open, reset, saveVerdict } = useComparison();
   const textareaRef = useAutoHeight(prompt);
   const endRef = useRef<HTMLDivElement>(null);
@@ -76,17 +81,25 @@ export function Chat() {
 
   const competitors = picked ?? (catalog ? defaultCompetitors(catalog) : []);
   const canSend = prompt.trim().length > 0 && !running && (started || competitors.length > 0);
+  const vendors = (started ? (record?.info.competitors ?? []) : competitors).map((c) => c.vendor);
+  const requiredKeys = useKeyRequirements(vendors);
+  /** True when keys are missing: the keys box opens instead of sending. */
+  function keysMissing(): boolean {
+    const missing = requiredKeys.some((v) => !keys[v === "claude" ? "anthropic" : "openai"]);
+    if (missing) setKeysOpen(true);
+    return missing;
+  }
 
   /** A follow-up: every agent continues its own session, in its own workspace. */
   async function followUp() {
-    if (!record) return;
+    if (!record || keysMissing()) return;
     setSending(true);
     setError(null);
     try {
       const response = await fetch(`/api/comparisons/${record.info.id}/turns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim() }),
+        body: JSON.stringify({ prompt: prompt.trim(), keys }),
       });
       const body = (await response.json().catch(() => null)) as { turnIndex?: number; error?: string } | null;
       if (!response.ok || body?.turnIndex === undefined) return setError(body?.error ?? `HTTP ${response.status}`);
@@ -102,6 +115,7 @@ export function Chat() {
   async function submit() {
     if (!canSend) return;
     if (started) return followUp();
+    if (keysMissing()) return;
     setSending(true);
     setError(null);
     try {
@@ -120,6 +134,7 @@ export function Chat() {
           repeats,
           check: checkOpen ? check : null,
           blind,
+          keys,
         }),
       });
       const body = (await response.json().catch(() => null)) as { id?: string; error?: string } | null;
@@ -251,6 +266,15 @@ export function Chat() {
           <span className="bar-summary">Loading the agents&apos; models…</span>
         )}
         <span className="spacer" />
+        <KeysButton
+          keys={keys}
+          onChange={(next) => {
+            setKeys(next);
+            setKeysOpen(false);
+          }}
+          required={requiredKeys}
+          open={keysOpen}
+        />
         {!running && !started && runsTotal > 0 && (
           <span className="hint">{`${runsTotal} run${runsTotal > 1 ? "s" : ""}`}</span>
         )}

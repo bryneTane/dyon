@@ -13,6 +13,7 @@ describe("createSchema", () => {
       repeats: 1,
       check: null,
       blind: false,
+      keys: {},
     });
   });
 
@@ -44,7 +45,9 @@ describe("createSchema", () => {
 
 describe("followUpSchema and verdictSchema", () => {
   it("parses valid bodies", () => {
-    expect(followUpSchema.parse({ prompt: " more " })).toEqual({ prompt: "more" });
+    expect(followUpSchema.parse({ prompt: " more " })).toEqual({ prompt: "more", keys: {} });
+    expect(followUpSchema.parse({ prompt: "x", keys: { openai: " sk-1 " } }).keys).toEqual({ openai: "sk-1" });
+    expect(followUpSchema.safeParse({ prompt: "x", keys: { other: "k" } }).success).toBe(false);
     expect(verdictSchema.parse({ winner: "a" })).toEqual({ winner: "a", note: "" });
   });
 

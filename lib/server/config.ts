@@ -20,6 +20,13 @@ export const cloudRun = process.env.CLOUD_RUN_JOB
   ? { job: process.env.CLOUD_RUN_JOB, project: process.env.GCP_PROJECT_ID ?? "", region: process.env.GCP_REGION ?? "" }
   : null;
 
+/**
+ * Hosted, every turn runs on the visitor's own keys; the server's keys (.env.local) are used for turns only
+ * locally. KEYS_SECRET encrypts the visitor's keys while a turn waits for a worker.
+ */
+export const useServerKeys = !process.env.VERCEL;
+export const keysSecret = process.env.KEYS_SECRET ?? "";
+
 /** Where run files are kept: a Google Cloud Storage bucket when set, else a folder in `dataDir`. */
 export const blobBucket = process.env.BLOB_BUCKET || null;
 

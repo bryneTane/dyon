@@ -8,6 +8,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/comparisons
   const { id } = await ctx.params;
   const record = await loadRecord(id);
   if (!record) return Response.json({ error: "This comparison does not exist." }, { status: 404 });
+  // Never sent to the browser: the user's encrypted keys of a queued turn, and the worker's claim.
+  const turns = record.turns.map(({ keys: _keys, claim: _claim, ...turn }) => turn);
   // The live room, with a join token for this comparison only.
-  return Response.json({ record, room: { url: roomUrl(id), token: signRoomToken(id) } });
+  return Response.json({ record: { ...record, turns }, room: { url: roomUrl(id), token: signRoomToken(id) } });
 }

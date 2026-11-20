@@ -174,6 +174,8 @@ export interface TurnRecord {
   heartbeatAt?: string;
   /** Set when a worker takes the turn: only that worker's progress is accepted, until the turn closes. */
   claim?: string;
+  /** The user's API keys for this turn, encrypted, kept only until a worker claims the turn. */
+  keys?: string;
   items: Record<string, TimelineItem[]>;
   results: Record<string, RunTurnResult>;
   /** Turn-level message: interrupted, or failed before the runs could start. */

@@ -18,8 +18,14 @@ const competitor = z.strictObject({
   effort: z.string().min(1).max(50).nullable(),
 });
 
+/** The user's own API keys (bring your own keys). Never stored in clear, never returned by the API. */
+const apiKey = z.string().trim().min(1).max(500).optional();
+export const userKeysSchema = z.strictObject({ anthropic: apiKey, openai: apiKey });
+export type UserKeys = z.infer<typeof userKeysSchema>;
+
 export const createSchema = z.strictObject({
   prompt,
+  keys: userKeysSchema.default({}),
   competitors: z
     .array(competitor)
     .min(1, "Pick at least one agent.")
@@ -35,7 +41,7 @@ export const createSchema = z.strictObject({
   blind: z.boolean().default(false),
 });
 
-export const followUpSchema = z.strictObject({ prompt });
+export const followUpSchema = z.strictObject({ prompt, keys: userKeysSchema.default({}) });
 
 export const verdictSchema = z.strictObject({
   winner: z.string().min(1).max(20),

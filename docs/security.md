@@ -36,7 +36,8 @@ worker itself holds no database, storage or relay credential; its only secret is
 ## What is still reachable
 
 - **Each agent's own API key.** Codex's commands can read it: during the run after isolation, Codex read the start
-  of `CODEX_API_KEY` from the environment of its own process (its own key, for this turn). Claude Code's sandbox
-  removes `ANTHROPIC_API_KEY` from its commands' environment.
+  of `CODEX_API_KEY` from the environment of its own process (its own key, for this turn). Claude Code is configured to remove
+  `ANTHROPIC_API_KEY` from its commands' environment (its sandbox's `credentials` setting); the probe, run as the check,
+  does not run inside that sandbox, so this was not measured.
 - **The network.** Commands can reach any host, as both agents need for installing packages and web searches.
 - **The cloud metadata server.** It answers, but its token has no permission.
