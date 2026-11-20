@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Download, Link2 } from "lucide-react";
 
 /** Share and export buttons of the report page (hidden when printing). */
 export function ReportActions({ title }: { title: string }) {
   const [copied, setCopied] = useState(false);
-  const url = typeof window === "undefined" ? "" : window.location.href;
+  // The page's address is only known in the browser: set after the first render, not during the server one.
+  const [url, setUrl] = useState("");
+  useEffect(() => setUrl(window.location.href), []);
   const text = `Coding agents compared on the same task: ${title}`;
   return (
     <div className="report-actions">
