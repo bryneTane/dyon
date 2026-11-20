@@ -63,3 +63,30 @@ textarea {
   font-size: 28px;
   font-weight: 600;
 }
+
+.chat form {
+  display: flex;
+  gap: 8px;
+  margin: 24px 0 16px;
+}
+.chat textarea {
+  flex: 1;
+  padding: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  resize: vertical;
+}
+.chat button {
+  padding: 0 16px;
+}
+.error {
+  color: #dc2626;
+}
+.steps {
+  padding-left: 20px;
+}
+.steps li {
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
