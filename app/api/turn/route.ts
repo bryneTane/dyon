@@ -3,8 +3,9 @@ import { join } from "node:path";
 import { createClaudeSession } from "@/lib/agents/claude";
 import { createCodexSession } from "@/lib/agents/codex";
 import { defaultCompetitors, VENDOR_LABELS, VENDORS } from "@/lib/domain/catalog";
+import { createStepClock } from "@/lib/domain/timing";
 import { errorText } from "@/lib/domain/text";
-import type { StreamEvent } from "@/lib/domain/types";
+import type { ComparisonInfo, Outcome, StreamEvent } from "@/lib/domain/types";
 import { loadCatalog } from "@/lib/server/catalog";
 import { workDir } from "@/lib/server/config";
 import { createWorkspace } from "@/lib/server/workspace";
@@ -33,35 +34,39 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: StreamEvent) => controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-      const comparisonId = randomUUID();
+      const info: ComparisonInfo = {
+        id: randomUUID(),
+        competitors: specs.map((spec, slot) => ({ ...spec, id: String.fromCharCode(97 + slot), slot })),
+        repeats: 1,
+        check: null,
+        blind: false,
+        runs: specs.map((spec, slot) => ({
+          runId: `${String.fromCharCode(97 + slot)}-1`,
+          competitorId: String.fromCharCode(97 + slot),
+          vendor: spec.vendor,
+          index: 1,
+        })),
+      };
+      send({ type: "comparison", info });
       send({ type: "turn_start", turnIndex: 0, prompt });
       for (const message of unavailable) send({ type: "fatal", message });
       await Promise.all(
-        specs.map(async (spec, index) => {
-          const runId = `${String.fromCharCode(97 + index)}-1`;
+        info.runs.map(async ({ runId }, slot) => {
+          const spec = specs[slot];
+          const stamp = createStepClock();
+          const started = Date.now();
+          const emit = (item: Parameters<typeof stamp>[0]) =>
+            send({ type: "item", runId, turnIndex: 0, item: stamp(item) });
+          let outcome: Outcome;
           try {
-            const ws = await createWorkspace(join(workDir, comparisonId, runId));
+            const ws = await createWorkspace(join(workDir, info.id, runId));
             const session = spec.vendor === "claude" ? createClaudeSession(ws, spec) : createCodexSession(ws, spec);
-            const report = await session.send(
-              prompt,
-              (item) => send({ type: "item", runId, turnIndex: 0, item }),
-              abort.signal,
-            );
-            if (report.outcome.status === "error")
-              send({
-                type: "item",
-                runId,
-                turnIndex: 0,
-                item: { id: randomUUID(), kind: "error", text: report.outcome.detail },
-              });
+            outcome = (await session.send(prompt, emit, abort.signal)).outcome;
           } catch (error) {
-            send({
-              type: "item",
-              runId,
-              turnIndex: 0,
-              item: { id: randomUUID(), kind: "error", text: errorText(error) },
-            });
+            outcome = { status: "error", detail: errorText(error) };
           }
+          if (outcome.status === "error") emit({ id: randomUUID(), kind: "error", text: outcome.detail });
+          send({ type: "run_end", runId, turnIndex: 0, outcome, wallMs: Date.now() - started });
         }),
       );
       send({ type: "turn_done", turnIndex: 0 });

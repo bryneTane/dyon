@@ -187,10 +187,13 @@ export interface ComparisonRecord {
 
 /** What a running turn emits, as it happens. */
 export type StreamEvent =
+  | { type: "comparison"; info: ComparisonInfo }
   | { type: "turn_start"; turnIndex: number; prompt: string }
   | { type: "run_meta"; runId: string; model?: string; version?: string }
   | { type: "item"; runId: string; turnIndex: number; item: TimelineItem }
   | { type: "run_done"; runId: string; turnIndex: number; result: RunTurnResult }
+  /** How a run ended, with its wall-clock time measured by Dyon. */
+  | { type: "run_end"; runId: string; turnIndex: number; outcome: Outcome; wallMs: number }
   | { type: "turn_done"; turnIndex: number }
   | { type: "fatal"; message: string };
 

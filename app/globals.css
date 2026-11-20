@@ -5,6 +5,16 @@
   --foreground: #09090b;
   --muted: #52525b;
   --accent: #4f46e5;
+  --dimmed: #71717a;
+  --success: #15803d;
+  --danger: #b91c1c;
+  --warning: #a16207;
+  --k-command: #a16207;
+  --k-edit: #15803d;
+  --k-web: #1d4ed8;
+  --c0: #c2410c;
+  --c1: #0f766e;
+  --c2: #6d28d9;
   color-scheme: light;
 }
 
@@ -16,6 +26,16 @@
     --foreground: #fafafa;
     --muted: #a1a1aa;
     --accent: #818cf8;
+    --dimmed: #71717a;
+    --success: #34d399;
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --k-command: #fbbf24;
+    --k-edit: #34d399;
+    --k-web: #60a5fa;
+    --c0: #fb923c;
+    --c1: #2dd4bf;
+    --c2: #a78bfa;
     color-scheme: dark;
   }
 }
@@ -79,18 +99,6 @@ textarea {
 .chat button {
   padding: 0 16px;
 }
-.error {
-  color: #dc2626;
-}
-.steps {
-  padding-left: 20px;
-}
-.steps li {
-  margin-bottom: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .runs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -99,4 +107,186 @@ textarea {
 .runs h2 {
   font-size: 14px;
   margin: 0 0 8px;
+}
+
+.error {
+  color: var(--danger);
+}
+.small {
+  font-size: 12px;
+}
+.pre {
+  white-space: pre-wrap;
+}
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.slot-0 {
+  --agent: var(--c0);
+}
+.slot-1 {
+  --agent: var(--c1);
+}
+.slot-2 {
+  --agent: var(--c2);
+}
+.run header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--agent);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--agent);
+}
+.status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.status.ok {
+  color: var(--success);
+}
+.status.bad {
+  color: var(--danger);
+}
+
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.step {
+  border-left: 2px solid var(--border);
+  padding: 4px 0 4px 10px;
+  min-width: 0;
+}
+.step summary {
+  cursor: pointer;
+  list-style: none;
+}
+.step summary::-webkit-details-marker {
+  display: none;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 13px;
+}
+.head .label {
+  font-weight: 600;
+}
+.head .time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--dimmed);
+  font-variant-numeric: tabular-nums;
+}
+.line {
+  display: block;
+  margin-top: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.output {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--surface);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.badge {
+  font-size: 11px;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+}
+.bad {
+  color: var(--danger);
+}
+.file {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.step-message {
+  border-left-color: var(--agent);
+}
+.step-command {
+  border-left-color: var(--k-command);
+}
+.step-command .head svg {
+  color: var(--k-command);
+}
+.step-file_edit {
+  border-left-color: var(--k-edit);
+}
+.step-file_edit .head svg {
+  color: var(--k-edit);
+}
+.step-web_search,
+.step-web_fetch {
+  border-left-color: var(--k-web);
+}
+.step-web_search .head svg,
+.step-web_fetch .head svg {
+  color: var(--k-web);
+}
+.step-file_read,
+.step-reasoning,
+.step-event {
+  opacity: 0.75;
+}
+.step-error {
+  border-left-color: var(--danger);
+}
+.step-error .head {
+  color: var(--danger);
+}
+.step-notice {
+  border-left-color: var(--warning);
+}
+.step-notice .head svg {
+  color: var(--warning);
+}
+.step.is-failed {
+  border-left-color: var(--danger);
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown pre {
+  padding: 8px;
+  background: var(--surface);
+  overflow: auto;
 }

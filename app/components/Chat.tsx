@@ -1,17 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import type { StreamEvent, TimelineItem } from "@/lib/domain/types";
+import type { ComparisonInfo, StreamEvent, TimelineItem } from "@/lib/domain/types";
+import { TurnBlock, type RunEnd } from "./TurnBlock";
 
 /** A prompt box and one column per run, listing each agent's steps as they arrive. */
 export function Chat() {
   const [prompt, setPrompt] = useState("");
+  const [info, setInfo] = useState<ComparisonInfo | null>(null);
   const [runs, setRuns] = useState<Record<string, TimelineItem[]>>({});
+  const [ends, setEnds] = useState<Record<string, RunEnd>>({});
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function apply(event: StreamEvent) {
-    if (event.type === "item") {
+    if (event.type === "comparison") {
+      setInfo(event.info);
+    } else if (event.type === "run_end") {
+      setEnds((all) => ({ ...all, [event.runId]: { outcome: event.outcome, wallMs: event.wallMs } }));
+    } else if (event.type === "item") {
       setRuns((all) => {
         const list = all[event.runId] ?? [];
         const at = list.findIndex((i) => i.id === event.item.id);
@@ -24,7 +31,9 @@ export function Chat() {
   }
 
   async function send() {
+    setInfo(null);
     setRuns({});
+    setEnds({});
     setError(null);
     setRunning(true);
     try {
@@ -75,52 +84,7 @@ export function Chat() {
         </button>
       </form>
       {error && <p className="error">{error}</p>}
-      <div className="runs">
-        {Object.entries(runs).map(([runId, items]) => (
-          <section key={runId}>
-            <h2>{runId}</h2>
-            <ol className="steps">
-              {items.map((item) => (
-                <li key={item.id}>
-                  <code>
-                    {item.kind}
-                    {item.status ? ` (${item.status})` : ""}
-                  </code>{" "}
-                  {describe(item)}
-                </li>
-              ))}
-            </ol>
-          </section>
-        ))}
-      </div>
+      {info && <TurnBlock info={info} items={runs} ends={ends} />}
     </div>
   );
-}
-
-function describe(item: TimelineItem): string {
-  switch (item.kind) {
-    case "message":
-    case "reasoning":
-      return item.text;
-    case "command":
-      return item.output ? `${item.command}\n${item.output}` : item.command;
-    case "file_read":
-      return item.target;
-    case "file_edit":
-      return item.files.map((f) => f.path).join(", ");
-    case "web_search":
-      return item.query;
-    case "web_fetch":
-      return item.url;
-    case "tool":
-      return `${item.name} ${item.input}`;
-    case "error":
-      return item.text;
-    case "notice":
-      return `${item.label}: ${item.text}`;
-    case "event":
-      return `${item.name} ${item.detail}`;
-    case "check":
-      return item.command;
-  }
 }
