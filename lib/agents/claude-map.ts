@@ -13,6 +13,7 @@ import type {
   WebFetchInput,
   WebSearchInput,
 } from "@anthropic-ai/claude-agent-sdk/sdk-tools";
+import { priceClaude } from "@/lib/domain/pricing";
 import type { Cumulative, Outcome, TimelineItem, Tokens } from "@/lib/domain/types";
 import { clip, stringify } from "@/lib/domain/text";
 
@@ -243,5 +244,12 @@ export function cumulativeFrom(totalCostUsd: number, modelUsage: ModelUsage): Cu
     tokens.output += usage.outputTokens;
     tokens.reasoning += usage.thinkingTokens ?? 0;
   }
-  return { tokens, reportedUsd: totalCostUsd, computedUsd: null, unpriced: [], unpricedWebActions: 0 };
+  const priced = priceClaude(modelUsage ?? {});
+  return {
+    tokens,
+    reportedUsd: totalCostUsd,
+    computedUsd: priced.usd,
+    unpriced: priced.missing,
+    unpricedWebActions: 0,
+  };
 }

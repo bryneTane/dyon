@@ -159,8 +159,9 @@ describe("result", () => {
     expect(state.cumulative).toEqual({
       tokens: { input: 150, cacheRead: 20, cacheWrite: 10, output: 55, reasoning: 30 },
       reportedUsd: 0.5,
+      // Made-up model names: no list price, so no derived cost, and the models are named.
       computedUsd: null,
-      unpriced: [],
+      unpriced: ["main", "helper"],
       unpricedWebActions: 0,
     });
   });

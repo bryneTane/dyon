@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Codex, type ModelReasoningEffort, type ThreadOptions } from "@openai/codex-sdk";
 import type { CompetitorSpec } from "@/lib/domain/types";
+import { priceCodex } from "@/lib/domain/pricing";
 import { errorText } from "@/lib/domain/text";
 import { codexPackageDir } from "@/lib/server/config";
 import { agentEnv, relativePath, type Workspace } from "@/lib/server/workspace";
@@ -69,7 +70,14 @@ export function createCodexSession(ws: Workspace, spec: CompetitorSpec, threadId
           emit({ id: randomUUID(), kind: "error", text: errorText(error) });
         }
       }
-      return { outcome, cumulative: mapper.state.cumulative ?? null, version: codexVersion };
+      const cumulative = mapper.state.cumulative ?? null;
+      if (cumulative) {
+        // Codex reports no cost and no model: the requested model's list prices are applied.
+        const priced = priceCodex(spec.model, cumulative.tokens);
+        cumulative.computedUsd = priced.usd;
+        cumulative.unpriced = priced.missing;
+      }
+      return { outcome, cumulative, version: codexVersion };
     },
   };
 }
