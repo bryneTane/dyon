@@ -9,7 +9,12 @@ import { createClaudeMapper } from "./claude-map";
 import type { AgentSession, TurnReport } from "./session";
 
 /** The options Dyon runs Claude Code with. Exported so recordings use exactly the same ones. */
-export function claudeOptions(ws: Workspace, spec: CompetitorSpec, resume: string | undefined, abortController: AbortController): Options {
+export function claudeOptions(
+  ws: Workspace,
+  spec: CompetitorSpec,
+  resume: string | undefined,
+  abortController: AbortController,
+): Options {
   return {
     cwd: ws.dir,
     resume,
@@ -60,7 +65,12 @@ export function createClaudeSession(ws: Workspace, spec: CompetitorSpec, session
         for (const item of mapper.finish()) emit(item);
       }
       current = mapper.state.sessionId ?? current;
-      return { outcome, cumulative: mapper.state.cumulative ?? null, model: mapper.state.model, version: mapper.state.version };
+      return {
+        outcome,
+        cumulative: mapper.state.cumulative ?? null,
+        model: mapper.state.model,
+        version: mapper.state.version,
+      };
     },
   };
 }

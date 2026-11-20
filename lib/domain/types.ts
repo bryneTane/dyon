@@ -35,7 +35,14 @@ export type TimelineItem = ItemBase &
     | { kind: "notice"; label: string; text: string }
     /** Anything else the agent sent, under the agent's own name: kept visible, never interpreted. */
     | { kind: "event"; name: string; detail: string }
-    | { kind: "check"; command: string; passed: boolean; exitCode: number | null; durationMs: number; timedOut: boolean }
+    | {
+        kind: "check";
+        command: string;
+        passed: boolean;
+        exitCode: number | null;
+        durationMs: number;
+        timedOut: boolean;
+      }
   );
 
 /** Token counts reported by the agent. `input` includes cache reads and cache writes. */
@@ -57,7 +64,8 @@ export interface Cumulative {
   unpricedWebActions: number;
 }
 
-export type Outcome = { status: "completed" } | { status: "error"; detail: string } | { status: "aborted"; detail?: string };
+export type Outcome =
+  { status: "completed" } | { status: "error"; detail: string } | { status: "aborted"; detail?: string };
 
 export interface DiffFile {
   path: string;

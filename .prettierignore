@@ -1,0 +1,4 @@
+package-lock.json
+tests/fixtures/
+.next/
+.dyon/

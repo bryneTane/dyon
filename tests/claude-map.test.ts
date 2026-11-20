@@ -85,7 +85,11 @@ describe("tools", () => {
   });
 
   it("marks a failed tool and closes tools left without a result", () => {
-    const { items } = mapAll([toolUse("1", "Bash", { command: "false" }), toolResult("1", "exit 1", true), toolUse("2", "Bash", { command: "sleep 99" })]);
+    const { items } = mapAll([
+      toolUse("1", "Bash", { command: "false" }),
+      toolResult("1", "exit 1", true),
+      toolUse("2", "Bash", { command: "sleep 99" }),
+    ]);
     expect(items.map((i) => i.status)).toEqual(["running", "failed", "running", "failed"]);
     expect(items[3].output).toBe("No result: the run ended first.");
   });
@@ -130,12 +134,19 @@ describe("messages that are not actions", () => {
 
 describe("result", () => {
   it("reports an error even when the subtype says success", () => {
-    const { state } = mapAll([{ type: "result", subtype: "success", is_error: true, total_cost_usd: 0, modelUsage: {} }]);
+    const { state } = mapAll([
+      { type: "result", subtype: "success", is_error: true, total_cost_usd: 0, modelUsage: {} },
+    ]);
     expect(state.outcome).toEqual({ status: "error", detail: "success" });
   });
 
   it("sums the totals of every model the agent used", () => {
-    const usage = (input: number, output: number) => ({ inputTokens: input, outputTokens: output, cacheReadInputTokens: 10, cacheCreationInputTokens: 5 });
+    const usage = (input: number, output: number) => ({
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadInputTokens: 10,
+      cacheCreationInputTokens: 5,
+    });
     const { state } = mapAll([
       {
         type: "result",

@@ -29,7 +29,8 @@ export interface ClaudeMapperContext {
 /** Converts the messages of one turn, keeping track of tools still running. */
 export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
   const open = new Map<string, TimelineItem>();
-  const state: { sessionId?: string; model?: string; version?: string; outcome?: Outcome; cumulative?: Cumulative } = {};
+  const state: { sessionId?: string; model?: string; version?: string; outcome?: Outcome; cumulative?: Cumulative } =
+    {};
 
   const notice = (label: string, text: string): TimelineItem => ({ id: newId(), kind: "notice", label, text });
 
@@ -51,14 +52,34 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
       case "Glob":
       case "Grep": {
         const { pattern, path } = input as GlobInput | GrepInput;
-        return { ...running, kind: "file_read", tool: name, target: path ? `${pattern} in ${rel(path)}` : (pattern ?? "") };
+        return {
+          ...running,
+          kind: "file_read",
+          tool: name,
+          target: path ? `${pattern} in ${rel(path)}` : (pattern ?? ""),
+        };
       }
       case "Write":
-        return { ...running, kind: "file_edit", tool: name, files: [{ path: rel((input as FileWriteInput).file_path ?? ""), change: "write" }] };
+        return {
+          ...running,
+          kind: "file_edit",
+          tool: name,
+          files: [{ path: rel((input as FileWriteInput).file_path ?? ""), change: "write" }],
+        };
       case "Edit":
-        return { ...running, kind: "file_edit", tool: name, files: [{ path: rel((input as FileEditInput).file_path ?? ""), change: "edit" }] };
+        return {
+          ...running,
+          kind: "file_edit",
+          tool: name,
+          files: [{ path: rel((input as FileEditInput).file_path ?? ""), change: "edit" }],
+        };
       case "NotebookEdit":
-        return { ...running, kind: "file_edit", tool: name, files: [{ path: rel((input as NotebookEditInput).notebook_path ?? ""), change: "edit" }] };
+        return {
+          ...running,
+          kind: "file_edit",
+          tool: name,
+          files: [{ path: rel((input as NotebookEditInput).notebook_path ?? ""), change: "edit" }],
+        };
       case "WebSearch":
         return { ...running, kind: "web_search", query: (input as WebSearchInput).query ?? "" };
       case "WebFetch":
@@ -79,7 +100,12 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
         return [];
       case "rate_limit_event":
         if (message.rate_limit_info.status === "allowed") return [];
-        return [notice("Rate limit", message.rate_limit_info.status === "rejected" ? "Rate limit reached." : "Close to the rate limit.")];
+        return [
+          notice(
+            "Rate limit",
+            message.rate_limit_info.status === "rejected" ? "Rate limit reached." : "Close to the rate limit.",
+          ),
+        ];
       case "system":
         return system(message);
       default:
@@ -96,11 +122,21 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
         return [];
       case "api_retry": {
         const status = message.error_status ? ` (HTTP ${message.error_status})` : "";
-        return [notice("API retry", `Attempt ${message.attempt} of ${message.max_retries}${status}, next in ${Math.round(message.retry_delay_ms / 1000)} s.`)];
+        return [
+          notice(
+            "API retry",
+            `Attempt ${message.attempt} of ${message.max_retries}${status}, next in ${Math.round(message.retry_delay_ms / 1000)} s.`,
+          ),
+        ];
       }
       case "compact_boundary": {
         const c = message.compact_metadata;
-        return [notice("Context compacted", `${c.trigger === "auto" ? "Automatic" : "Manual"} compaction of ${c.pre_tokens.toLocaleString("en-US")} tokens.`)];
+        return [
+          notice(
+            "Context compacted",
+            `${c.trigger === "auto" ? "Automatic" : "Manual"} compaction of ${c.pre_tokens.toLocaleString("en-US")} tokens.`,
+          ),
+        ];
       }
       case "permission_denied":
         return [notice("Permission denied", `${message.tool_name}: ${message.message}`)];
@@ -170,7 +206,11 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
 
   /** Tools that never got a result when the turn ended: closed as failed. */
   function finish(): TimelineItem[] {
-    const items = [...open.values()].map((item): TimelineItem => ({ ...item, status: "failed", output: "No result: the run ended first." }));
+    const items = [...open.values()].map((item): TimelineItem => ({
+      ...item,
+      status: "failed",
+      output: "No result: the run ended first.",
+    }));
     open.clear();
     return items;
   }
@@ -181,7 +221,9 @@ export function createClaudeMapper({ rel, newId }: ClaudeMapperContext) {
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.map((part) => (part && typeof part === "object" && "text" in part ? String(part.text) : stringify(part))).join("\n");
+    return content
+      .map((part) => (part && typeof part === "object" && "text" in part ? String(part.text) : stringify(part)))
+      .join("\n");
   }
   return stringify(content);
 }

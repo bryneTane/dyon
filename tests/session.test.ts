@@ -5,7 +5,13 @@ describe("subtractTokens", () => {
   it("turns two running totals into one turn's usage", () => {
     const before = { input: 100, cacheRead: 40, cacheWrite: 10, output: 30, reasoning: 5 };
     const after = { input: 250, cacheRead: 140, cacheWrite: 10, output: 80, reasoning: 25 };
-    expect(subtractTokens(after, before)).toEqual({ input: 150, cacheRead: 100, cacheWrite: 0, output: 50, reasoning: 20 });
+    expect(subtractTokens(after, before)).toEqual({
+      input: 150,
+      cacheRead: 100,
+      cacheWrite: 0,
+      output: 50,
+      reasoning: 20,
+    });
   });
 
   it("is the identity against zero, for the first turn", () => {
