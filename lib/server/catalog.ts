@@ -51,6 +51,16 @@ export function codexModelOptions(json: unknown): ModelOption[] {
     .map((m) => ({ id: m.slug, label: m.display_name, efforts: m.supported_reasoning_levels.map((l) => l.effort) }));
 }
 
+/**
+ * Deletes a temporary folder without ever failing the read: a closed agent process can still be writing to
+ * it for a moment (seen: ENOTEMPTY), which must not discard a model list that was read successfully.
+ */
+async function removeQuietly(dir: string) {
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch((error) =>
+    console.error(`Could not remove ${dir}:`, error),
+  );
+}
+
 async function readClaudeModels(): Promise<ModelOption[]> {
   const home = await mkdtemp(join(tmpdir(), "dyon-catalog-"));
   // A session that never receives a prompt: only its model list is read.
@@ -74,7 +84,7 @@ async function readClaudeModels(): Promise<ModelOption[]> {
     return claudeModelOptions(await session.supportedModels());
   } finally {
     session.close();
-    await rm(home, { recursive: true, force: true });
+    await removeQuietly(home);
   }
 }
 
@@ -91,7 +101,7 @@ async function readCodexModels(): Promise<ModelOption[]> {
     });
     return codexModelOptions(JSON.parse(stdout));
   } finally {
-    await rm(home, { recursive: true, force: true });
+    await removeQuietly(home);
   }
 }
 

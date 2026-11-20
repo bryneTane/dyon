@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { followEvent } from "@/lib/domain/record";
-import type { ComparisonRecord, LiveEvent } from "@/lib/domain/types";
+import type { ComparisonRecord, LiveEvent, RunTurnResult, TimelineItem, TurnRecord } from "@/lib/domain/types";
 
 /** The runner saves at least every second: after a gap, the saved record has caught up by then. */
 const RELOAD_AFTER_GAP_MS = 1200;
@@ -94,4 +94,27 @@ export function useComparison() {
   }, []);
 
   return { record, error, setError, open, reset };
+}
+
+/** One turn as the interface shows it. */
+export interface TurnView {
+  index: number;
+  prompt: string;
+  startedAt: number;
+  items: Record<string, TimelineItem[]>;
+  results: Record<string, RunTurnResult>;
+  done: boolean;
+  error?: string;
+}
+
+export function turnView(turn: TurnRecord): TurnView {
+  return {
+    index: turn.index,
+    prompt: turn.prompt,
+    startedAt: Date.parse(turn.startedAt),
+    items: turn.items,
+    results: turn.results,
+    done: turn.state === "done",
+    error: turn.error,
+  };
 }

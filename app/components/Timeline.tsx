@@ -1,167 +1,251 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import {
-  AlertTriangle,
   Brain,
-  CircleAlert,
+  CircleCheck,
+  CircleX,
+  FilePen,
   FileText,
   Globe,
   Info,
-  Loader2,
-  Pencil,
+  LoaderCircle,
+  MessageSquare,
   Search,
-  SquareTerminal,
+  Terminal,
+  TriangleAlert,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
 import type { TimelineItem } from "@/lib/domain/types";
 import { Markdown } from "./Markdown";
 
-/** One run's steps in order, each kind with its own look. */
-export function Timeline({ items }: { items: TimelineItem[] }) {
-  return (
-    <ol className="timeline">
-      {items.map((item) => (
-        <li key={item.id} className={`step step-${item.kind} ${item.status ? `is-${item.status}` : ""}`}>
-          <Step item={item} />
-        </li>
-      ))}
-    </ol>
-  );
+const ICONS: Record<TimelineItem["kind"], LucideIcon> = {
+  message: MessageSquare,
+  reasoning: Brain,
+  command: Terminal,
+  file_read: FileText,
+  file_edit: FilePen,
+  web_search: Search,
+  web_fetch: Globe,
+  tool: Wrench,
+  error: TriangleAlert,
+  notice: TriangleAlert,
+  event: Info,
+  check: CircleCheck,
+};
+
+export function StepIcon({ item, size = 14 }: { item: TimelineItem; size?: number }) {
+  const Icon = item.kind === "check" && !item.passed ? CircleX : ICONS[item.kind];
+  const tone = item.kind === "check" ? (item.passed ? "ok" : "bad") : `k-${item.kind}`;
+  return <Icon size={size} className={`step-icon ${tone}`} />;
 }
 
-function Step({ item }: { item: TimelineItem }) {
+/** One-line description of a step. */
+export function stepSummary(item: TimelineItem): string {
   switch (item.kind) {
     case "message":
-      return <Markdown text={item.text} />;
+      return item.text
+        .replace(/[`*_#>]/g, "")
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/\s+/g, " ");
     case "reasoning":
-      return (
-        <details>
-          <summary>
-            <Head icon={Brain} label="Reasoning" item={item} />
-          </summary>
-          <Markdown text={item.text} />
-        </details>
-      );
+      return "Thinking";
     case "command":
-      return (
-        <details open={item.status === "failed"}>
-          <summary>
-            <Head icon={SquareTerminal} label="Command" item={item}>
-              {item.exitCode != null && item.exitCode !== 0 && <span className="badge bad">exit {item.exitCode}</span>}
-            </Head>
-            <code className="line">{item.command}</code>
-          </summary>
-          {item.output ? <pre className="output">{item.output}</pre> : <p className="muted small">No output.</p>}
-        </details>
-      );
+      return item.command.split("\n")[0];
     case "file_read":
-      return (
-        <Head icon={FileText} label={`${item.tool}`} item={item}>
-          <code>{item.target}</code>
-        </Head>
-      );
+      return item.target;
     case "file_edit":
-      return (
-        <WithOutput item={item}>
-          <Head icon={Pencil} label="Edited" item={item}>
-            {item.files.map((f) => (
-              <span key={f.path} className="file">
-                <code>{f.path}</code> <span className="muted small">{f.change}</span>
-              </span>
-            ))}
-          </Head>
-        </WithOutput>
-      );
+      return item.files.map((f) => f.path).join(", ");
     case "web_search":
-      return (
-        <WithOutput item={item}>
-          <Head icon={Search} label="Web search" item={item}>
-            <span>{item.query}</span>
-          </Head>
-        </WithOutput>
-      );
+      return item.query ? `“${item.query}”` : "Web action";
     case "web_fetch":
-      return (
-        <WithOutput item={item}>
-          <Head icon={Globe} label="Web page" item={item}>
-            <code>{item.url}</code>
-          </Head>
-        </WithOutput>
-      );
+      return item.url;
     case "tool":
-      return (
-        <details>
-          <summary>
-            <Head icon={Wrench} label={item.name} item={item} />
-          </summary>
-          <pre className="output">{item.input}</pre>
-          {item.output && <pre className="output">{item.output}</pre>}
-        </details>
-      );
+      return item.name;
     case "error":
-      return (
-        <Head icon={CircleAlert} label="Error" item={item}>
-          {item.text}
-        </Head>
-      );
+      return item.text;
     case "notice":
-      return (
-        <Head icon={AlertTriangle} label={item.label} item={item}>
-          <span className="pre">{item.text}</span>
-        </Head>
-      );
+      return `${item.label}: ${item.text}`;
     case "event":
-      return (
-        <details>
-          <summary>
-            <Head icon={Info} label={item.name} item={item} />
-          </summary>
-          <pre className="output">{item.detail}</pre>
-        </details>
-      );
+      return item.name;
     case "check":
-      return <Head icon={SquareTerminal} label={item.passed ? "Check passed" : "Check failed"} item={item} />;
+      return item.passed ? "Check passed" : "Check failed";
   }
 }
 
-/** Steps whose result is optional: shown under a toggle only when there is one. */
-function WithOutput({ item, children }: { item: TimelineItem; children: ReactNode }) {
-  if (!item.output) return <>{children}</>;
-  return (
-    <details>
-      <summary>{children}</summary>
-      <pre className="output">{item.output}</pre>
-    </details>
-  );
-}
+const seconds = (ms?: number) => (ms === undefined ? "" : `${(ms / 1000).toFixed(1)}s`);
 
-function Head({
-  icon: Icon,
-  label,
-  item,
-  children,
+/** Text clamped to a few lines, with a toggle. */
+function Expandable({
+  text,
+  lines,
+  tail = false,
+  className,
 }: {
-  icon: LucideIcon;
-  label: string;
-  item: TimelineItem;
-  children?: ReactNode;
+  text: string;
+  lines: number;
+  tail?: boolean;
+  className?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const trimmed = text.replace(/\s+$/, "");
+  const all = trimmed.split("\n");
+  const maxChars = lines * 120;
+  const long = all.length > lines || trimmed.length > maxChars;
+  let shown = open || !long ? trimmed : (tail ? all.slice(-lines) : all.slice(0, lines)).join("\n");
+  if (!open && shown.length > maxChars) shown = tail ? `…${shown.slice(-maxChars)}` : `${shown.slice(0, maxChars)}…`;
   return (
-    <div className="head">
-      {item.status === "running" ? (
-        <Loader2 size={14} className="spin" aria-label="Running" />
-      ) : (
-        <Icon size={14} aria-hidden />
+    <div className={className}>
+      <pre>{shown}</pre>
+      {long && (
+        <button className="more" onClick={() => setOpen((v) => !v)}>
+          {open ? "Show less" : all.length > lines ? `Show all ${all.length} lines` : "Show all"}
+        </button>
       )}
-      <span className="label">{label}</span>
-      {children}
-      <span className="time">{timing(item)}</span>
     </div>
   );
 }
 
-function timing(item: TimelineItem): string {
-  if (item.t === undefined) return "";
-  const at = `${(item.t / 1000).toFixed(1)} s`;
-  return item.endT !== undefined ? `${at} · ${((item.endT - item.t) / 1000).toFixed(1)} s` : at;
+function Detail({ item }: { item: TimelineItem }) {
+  switch (item.kind) {
+    case "message":
+      return <Markdown text={item.text} />;
+    case "reasoning":
+      return <Expandable className="reasoning" text={item.text} lines={2} />;
+    case "command":
+      return <Expandable className="cmd" text={item.command} lines={4} />;
+    case "file_read":
+      return (
+        <div className="step-title">
+          <span>{item.tool}</span> <code className="path">{item.target}</code>
+        </div>
+      );
+    case "file_edit":
+      return (
+        <div className="step-title">
+          {item.files.map((f) => (
+            <code key={f.path} className="path">
+              {f.path}
+            </code>
+          ))}
+          <span className="muted small">
+            {item.files[0]?.change === "add" || item.files[0]?.change === "write"
+              ? "created or written"
+              : item.files[0]?.change}
+          </span>
+        </div>
+      );
+    case "web_search":
+      return (
+        <div className="step-title">
+          {item.query ? (
+            `“${item.query}”`
+          ) : (
+            <span className="muted">
+              {item.status === "running" ? "Searching…" : "Web action without a query (open page, find)"}
+            </span>
+          )}
+        </div>
+      );
+    case "web_fetch":
+      return <code className="path">{item.url}</code>;
+    case "tool":
+      return (
+        <div className="step-title">
+          <span>{item.name}</span> <code className="muted small">{item.input}</code>
+        </div>
+      );
+    case "error":
+      return <div className="bad">{item.text}</div>;
+    case "notice":
+      return (
+        <div className="step-title">
+          <span className="warn">{item.label}</span> <span>{item.text}</span>
+        </div>
+      );
+    case "event":
+      return <Expandable className="output" text={`${item.name}\n${item.detail}`} lines={1} />;
+    case "check":
+      return (
+        <div className="step-title">
+          <span className={item.passed ? "ok" : "bad"}>
+            {item.passed ? "Check passed" : item.timedOut ? "Check timed out" : "Check failed"}
+          </span>
+          <code className="muted small">{item.command}</code>
+        </div>
+      );
+  }
+}
+
+function Meta({ item }: { item: TimelineItem }) {
+  const duration =
+    item.kind === "check"
+      ? item.durationMs
+      : item.endT !== undefined && item.t !== undefined
+        ? item.endT - item.t
+        : undefined;
+  return (
+    <span className="step-meta">
+      {item.status === "running" && <LoaderCircle size={12} className="spin accent" />}
+      {item.kind === "command" && item.exitCode != null && item.status !== "running" && (
+        <span className={item.exitCode === 0 ? "" : "warn"}>exit {item.exitCode}</span>
+      )}
+      {item.status === "failed" && item.kind !== "command" && <span className="bad">failed</span>}
+      {duration !== undefined && (
+        <span title="From the first event Dyon received for this step to its completion. Codex can announce very short commands only when they finish (about 0 s).">
+          {seconds(duration)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function Step({ item }: { item: TimelineItem }) {
+  return (
+    <div className={`step step-${item.kind}`}>
+      <span className="step-time" title="Time since the start of the turn">
+        {seconds(item.t)}
+      </span>
+      <StepIcon item={item} />
+      <div className="step-body">
+        <Detail item={item} />
+        {item.output && item.kind !== "message" && (
+          <Expandable
+            className="output"
+            text={item.output}
+            lines={4}
+            tail={item.kind === "command" || item.kind === "check"}
+          />
+        )}
+      </div>
+      <Meta item={item} />
+    </div>
+  );
+}
+
+export function Timeline({ items, live }: { items: TimelineItem[]; live: boolean }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (live && el) el.scrollTop = el.scrollHeight;
+  }, [items, live]);
+  return (
+    <div className="timeline" ref={ref}>
+      {items.length === 0 && (
+        <div className="empty">
+          {live ? (
+            <>
+              <LoaderCircle size={14} className="spin" /> Waiting for the first event
+            </>
+          ) : (
+            "No events"
+          )}
+        </div>
+      )}
+      {items.map((item) => (
+        <Step key={item.id} item={item} />
+      ))}
+    </div>
+  );
 }

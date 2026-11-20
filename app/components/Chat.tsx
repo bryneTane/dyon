@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { defaultCompetitors, VENDOR_LABELS, VENDORS, type Catalog } from "@/lib/domain/catalog";
-import { TurnBlock } from "./TurnBlock";
-import { useComparison } from "./useComparison";
+import { useEffect, useRef, useState } from "react";
+import { ArrowUp, Plus } from "lucide-react";
+import { competitorLabel, defaultCompetitors, VENDOR_LABELS, VENDORS, type Catalog } from "@/lib/domain/catalog";
+import { CatalogProvider } from "./naming";
+import { turnView, useComparison } from "./useComparison";
+import { TurnBlock, type InspectTarget } from "./TurnBlock";
+import { Inspector } from "./Inspector";
 
 /**
  * Tasks offered on the empty screen, one per kind of task public comparisons of coding agents use:
@@ -30,13 +33,33 @@ const EXAMPLES = [
   },
 ];
 
-/** A prompt box, then the comparison it started, followed live and kept across refreshes. */
+/** Textarea that grows with its content, up to a limit. */
+function useAutoHeight(value: string) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [value]);
+  return ref;
+}
+
+const NO_CATALOG: Catalog = { claude: { models: [] }, codex: { models: [] } };
+
+/** The task box, then the comparison it started, followed live and kept across refreshes. */
 export function Chat() {
   const [prompt, setPrompt] = useState("");
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [sending, setSending] = useState(false);
+  const [inspect, setInspect] = useState<InspectTarget | null>(null);
   const { record, error, setError, open, reset } = useComparison();
-  const busy = sending || record?.status === "busy";
+  const textareaRef = useAutoHeight(prompt);
+  const endRef = useRef<HTMLDivElement>(null);
+  const running = sending || record?.status === "busy";
+  const started = Boolean(record);
+  const comparison = record?.info ?? null;
+  const turns = record?.turns.map(turnView) ?? [];
 
   useEffect(() => {
     fetch("/api/catalog")
@@ -45,7 +68,14 @@ export function Chat() {
       .catch((e) => setError(`Could not read the agents' models: ${e instanceof Error ? e.message : String(e)}`));
   }, [setError]);
 
-  async function send() {
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns.length]);
+
+  const canSend = prompt.trim().length > 0 && !running && !started;
+
+  async function submit() {
+    if (!canSend) return;
     setSending(true);
     setError(null);
     try {
@@ -57,11 +87,13 @@ export function Chat() {
       const response = await fetch("/api/comparisons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, competitors: defaultCompetitors(catalog) }),
+        body: JSON.stringify({ prompt: prompt.trim(), competitors: defaultCompetitors(catalog) }),
       });
       const body = (await response.json().catch(() => null)) as { id?: string; error?: string } | null;
       if (!response.ok || !body?.id) return setError(body?.error ?? `HTTP ${response.status}`);
       setPrompt("");
+      // Open the live side-by-side view of the new turn.
+      setInspect({ turnIndex: 0, runId: null });
       open(body.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -70,47 +102,110 @@ export function Chat() {
     }
   }
 
-  return (
-    <div className="chat">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (prompt.trim() && !busy) void send();
+  function newComparison() {
+    reset();
+    setInspect(null);
+    setPrompt("");
+  }
+
+  const competitors = catalog ? defaultCompetitors(catalog) : [];
+  const composer = (
+    <div className="composer">
+      <textarea
+        ref={textareaRef}
+        rows={1}
+        value={prompt}
+        autoFocus
+        onChange={(e) => setPrompt(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void submit();
+          }
         }}
-      >
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={3}
-          placeholder="Describe a coding task"
-        />
-        <button type="submit" disabled={busy || !prompt.trim()}>
-          {busy ? "Running…" : "Send"}
+        placeholder="Describe a coding task for the agents…"
+      />
+      <div className="composer-bar">
+        <span className="bar-summary">
+          {catalog ? competitors.map((c) => competitorLabel(c, catalog)).join(" vs ") : "Loading the agents' models…"}
+        </span>
+        <span className="spacer" />
+        {!running && competitors.length > 0 && (
+          <span className="hint">{`${competitors.length} run${competitors.length > 1 ? "s" : ""}`}</span>
+        )}
+        <button className="send" onClick={() => void submit()} disabled={!canSend} title="Send (Enter)">
+          <ArrowUp size={18} />
         </button>
-      </form>
-      {error && <p className="error">{error}</p>}
-      {record ? (
-        <>
-          {record.turns.map((turn) => (
-            <TurnBlock key={turn.index} info={record.info} turn={turn} catalog={catalog} />
-          ))}
-          {!busy && (
-            <button type="button" className="link" onClick={reset}>
-              New comparison
+      </div>
+    </div>
+  );
+
+  return (
+    <CatalogProvider value={catalog ?? NO_CATALOG}>
+      <div className="app">
+        <header className="topbar">
+          <span className="wordmark">Dyon</span>
+          <span className="spacer" />
+          {started && (
+            <button className="ghost" onClick={newComparison} disabled={running}>
+              <Plus size={15} /> New comparison
             </button>
           )}
-        </>
-      ) : (
-        <div className="examples">
-          <p className="muted small">Or start from an example:</p>
-          {EXAMPLES.map((example) => (
-            <button key={example.title} type="button" onClick={() => setPrompt(example.prompt)}>
-              <strong>{example.title}</strong>
-              <span>{example.summary}</span>
-            </button>
-          ))}
+        </header>
+
+        <div className={`workspace ${inspect && comparison ? "with-inspector" : ""}`}>
+          <div className="chat-pane">
+            {!started ? (
+              <main className="welcome">
+                <h1>Compare coding agents on the same task</h1>
+                <p className="lead">
+                  Claude Code and Codex work in parallel, each in a fresh workspace. Follow every step, then compare
+                  time, tokens, cost and code.
+                </p>
+                {composer}
+                {error && <div className="error-box">{error}</div>}
+                <div className="examples">
+                  {EXAMPLES.map((example) => (
+                    <button
+                      key={example.title}
+                      className="example"
+                      title={example.summary}
+                      onClick={() => setPrompt(example.prompt)}
+                    >
+                      <span>{example.title}</span>
+                    </button>
+                  ))}
+                </div>
+              </main>
+            ) : (
+              <main className="thread">
+                {turns.map((turn) => (
+                  <TurnBlock
+                    key={turn.index}
+                    comparison={comparison}
+                    turn={turn}
+                    meta={record!.meta}
+                    inspect={inspect}
+                    onInspect={setInspect}
+                  />
+                ))}
+                {error && <div className="error-box">{error}</div>}
+                <div ref={endRef} />
+              </main>
+            )}
+          </div>
+          {inspect && comparison && turns[inspect.turnIndex] && (
+            <Inspector
+              comparison={comparison}
+              turn={turns[inspect.turnIndex]}
+              meta={record!.meta}
+              target={inspect}
+              onSelect={setInspect}
+              onClose={() => setInspect(null)}
+            />
+          )}
         </div>
-      )}
-    </div>
+      </div>
+    </CatalogProvider>
   );
 }

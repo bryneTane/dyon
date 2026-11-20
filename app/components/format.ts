@@ -1,4 +1,5 @@
 export function formatMs(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)} s`;
   const m = Math.floor(s / 60);
@@ -13,4 +14,8 @@ export function formatTokens(n: number): string {
 
 export function formatUsd(usd: number): string {
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(3)}`;
+}
+
+export function formatPct(x: number): string {
+  return `${Math.round(x * 100)}%`;
 }
