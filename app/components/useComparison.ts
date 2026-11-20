@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PartySocket from "partysocket";
 import { followEvent } from "@/lib/domain/record";
 import type { ComparisonRecord, LiveEvent, RunTurnResult, TimelineItem, TurnRecord, Verdict } from "@/lib/domain/types";
 
@@ -14,11 +15,24 @@ const SILENCE_MS = 20_000;
  * Missed events (a gap, a reconnection, a long silence) are recovered by reloading the saved record.
  * The comparison id lives in the URL (`?c=<id>`), so a refresh or a shared link opens the same comparison.
  */
+interface Loaded {
+  record: ComparisonRecord;
+  /** The comparison's live room, and a join token for it. */
+  room: { url: string; token: string };
+}
+
+async function load(id: string): Promise<Loaded> {
+  const response = await fetch(`/api/comparisons/${id}`);
+  const body = (await response.json().catch(() => null)) as (Loaded & { error?: string }) | null;
+  if (!response.ok || !body?.record) throw new Error(body?.error ?? `HTTP ${response.status}`);
+  return body;
+}
+
 export function useComparison() {
   const [record, setRecord] = useState<ComparisonRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const current = useRef<ComparisonRecord | null>(null);
-  const stream = useRef<EventSource | null>(null);
+  const socket = useRef<PartySocket | null>(null);
   const timers = useRef<{ reload?: ReturnType<typeof setTimeout>; silence?: ReturnType<typeof setTimeout> }>({});
 
   const show = (next: ComparisonRecord | null) => {
@@ -27,47 +41,56 @@ export function useComparison() {
   };
 
   const close = () => {
-    stream.current?.close();
-    stream.current = null;
+    socket.current?.close();
+    socket.current = null;
     clearTimeout(timers.current.reload);
     clearTimeout(timers.current.silence);
   };
 
   const follow = useCallback(async (id: string) => {
     close();
-    const response = await fetch(`/api/comparisons/${id}`);
-    const body = (await response.json().catch(() => null)) as { record?: ComparisonRecord; error?: string } | null;
-    if (!response.ok || !body?.record) {
-      setError(body?.error ?? `HTTP ${response.status}`);
+    const first = await load(id).catch((e: Error) => e);
+    if (first instanceof Error) {
+      setError(first.message);
       show(null);
       return;
     }
     setError(null);
-    show(body.record);
+    show(first.record);
+    /** Reads the saved comparison again; kept only if it is not behind what this tab already shows. */
+    const refresh = async () => {
+      const fresh = await load(id).catch(() => null);
+      const shown = current.current;
+      if (fresh && shown?.info.id === id && fresh.record.seq >= shown.seq) show(fresh.record);
+    };
     const reload = (delay: number) => {
       clearTimeout(timers.current.reload);
-      timers.current.reload = setTimeout(() => void follow(id), delay);
+      timers.current.reload = setTimeout(() => void refresh(), delay);
     };
     const watchSilence = () => {
       clearTimeout(timers.current.silence);
       if (current.current?.status === "busy") timers.current.silence = setTimeout(() => reload(0), SILENCE_MS);
     };
-    const source = new EventSource(`/api/comparisons/${id}/events?after=${body.record.seq}`);
-    stream.current = source;
-    let opened = false;
-    source.onopen = () => {
-      // A second open is a reconnection: events may have been missed meanwhile.
-      if (opened) reload(0);
-      opened = true;
-    };
-    source.onmessage = (message) => {
-      const live = JSON.parse(message.data) as LiveEvent;
+    const room = new URL(first.room.url);
+    const live = new PartySocket({
+      host: room.host,
+      protocol: room.protocol === "https:" ? "wss" : "ws",
+      party: "main",
+      room: id,
+      // A fresh join token on every (re)connection: tokens last 10 minutes.
+      query: async () => ({ token: (await load(id).catch(() => first)).room.token }),
+    });
+    // Events published while connecting, or during a disconnection, are caught up from the saved comparison.
+    live.addEventListener("open", () => reload(0));
+    live.addEventListener("message", (message) => {
+      const event = JSON.parse(String(message.data)) as LiveEvent;
       if (!current.current) return;
-      const { record: next, gap } = followEvent(current.current, live);
+      const { record: next, gap } = followEvent(current.current, event);
       if (gap) return reload(RELOAD_AFTER_GAP_MS);
       if (next !== current.current) show(next);
       watchSilence();
-    };
+    });
+    socket.current = live;
     watchSilence();
   }, []);
 

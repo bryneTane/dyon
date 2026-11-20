@@ -14,6 +14,10 @@ export const databaseUrl = process.env.DATABASE_URL || null;
 export const workerUrl = (process.env.WORKER_URL ?? "http://localhost:3001").replace(/\/$/, "");
 export const workerSecret = process.env.WORKER_SECRET ?? "";
 
+/** The live relay (party/), and the secret its tokens are signed with: held by the web app only. */
+export const relayUrl = (process.env.RELAY_URL ?? "http://localhost:3002").replace(/\/$/, "");
+export const relaySecret = process.env.RELAY_SECRET ?? "";
+
 /**
  * One folder per comparison, one per run inside it. Outside the project on purpose: agents look for a git
  * repository and instruction files (AGENTS.md) in the folders above their own, and must find none.

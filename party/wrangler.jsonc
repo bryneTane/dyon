@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Realtime relay of Dyon: one Durable Object per comparison room, at /parties/main/<id>.
+  // PARTYKIT_SECRET: .dev.vars locally (written by `npm run dev`), `wrangler secret put` when deployed.
+  "name": "dyon-realtime",
+  "main": "src/room.ts",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "Main", "class_name": "ComparisonRoom" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ComparisonRoom"] }],
+}

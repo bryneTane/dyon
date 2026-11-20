@@ -1,17 +1,15 @@
-// The worker: runs the turns the web app hands it, and streams their live events. A separate process from the web
+// The worker: runs the turns the web app hands it, and publishes their live events to the relay. A separate process from the web
 // app, because a turn runs for minutes and executes the agents' commands.
-import { createServer, type ServerResponse } from "node:http";
+import { createServer } from "node:http";
 import { errorText } from "@/lib/domain/text";
 import { loadCatalog } from "@/lib/server/catalog";
 import { workerSecret } from "@/lib/server/config";
-import { subscribe } from "@/lib/server/events";
 import { isId } from "@/lib/server/ids";
+import { createPublisher } from "@/lib/server/realtime";
 import { runTurn, stopAllTurns } from "@/lib/server/runner";
 import { store } from "@/lib/server/store";
 
 const PORT = Number(process.env.PORT ?? 3001);
-/** Comment line sent regularly so proxies and browsers keep an idle connection open. */
-const PING_EVERY_MS = 15_000;
 
 if (!workerSecret) throw new Error("WORKER_SECRET is not set.");
 
@@ -23,31 +21,24 @@ async function publishCatalog(attempt = 1): Promise<void> {
     setTimeout(() => void publishCatalog(attempt + 1), 5_000 * attempt);
 }
 
-function streamEvents(id: string, after: number, res: ServerResponse) {
-  res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" });
-  const unsubscribe = subscribe(id, after, (event) => res.write(`data: ${JSON.stringify(event)}\n\n`));
-  const ping = setInterval(() => res.write(": ping\n\n"), PING_EVERY_MS);
-  res.on("close", () => {
-    clearInterval(ping);
-    unsubscribe();
-  });
-}
-
 const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://worker");
   if (req.method === "GET" && url.pathname === "/health") return void res.writeHead(200).end("ok");
   if (req.headers.authorization !== `Bearer ${workerSecret}`) return void res.writeHead(401).end();
-  const events = url.pathname.match(/^\/events\/([^/]+)$/);
-  if (req.method === "GET" && events && isId(events[1]))
-    return streamEvents(events[1], Number(url.searchParams.get("after")) || 0, res);
   if (req.method !== "POST" || url.pathname !== "/run") return void res.writeHead(404).end();
   let body = "";
   req.on("data", (chunk) => (body += chunk));
   req.on("end", () => {
-    const { comparisonId, turnIndex } = JSON.parse(body || "{}") as { comparisonId?: string; turnIndex?: number };
-    if (!comparisonId || !isId(comparisonId) || typeof turnIndex !== "number") return void res.writeHead(400).end();
+    const { comparisonId, turnIndex, room } = JSON.parse(body || "{}") as {
+      comparisonId?: string;
+      turnIndex?: number;
+      /** The room's address and a publish token for it, from the web app: the worker holds no relay secret. */
+      room?: { url: string; token: string };
+    };
+    if (!comparisonId || !isId(comparisonId) || typeof turnIndex !== "number" || !room)
+      return void res.writeHead(400).end();
     res.writeHead(202).end();
-    runTurn(comparisonId, turnIndex).catch(async (error) => {
+    runTurn(comparisonId, turnIndex, createPublisher(room.url, room.token)).catch(async (error) => {
       // A failure that escapes the runner is saved on the turn, never lost.
       console.error(`Turn ${turnIndex} of ${comparisonId} failed:`, error);
       await (

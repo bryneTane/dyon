@@ -8,6 +8,7 @@ import { errorText } from "@/lib/domain/text";
 import type { ComparisonInfo, ComparisonRecord } from "@/lib/domain/types";
 import { workerSecret, workerUrl } from "./config";
 import { isId } from "./ids";
+import { roomUrl, signPublishToken } from "./realtime";
 import { store } from "./store";
 
 /** The agents' catalog as the worker last read it from the agents themselves. */
@@ -103,7 +104,7 @@ async function dispatch(id: string, turnIndex: number): Promise<void> {
     const response = await fetch(`${workerUrl}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${workerSecret}` },
-      body: JSON.stringify({ comparisonId: id, turnIndex }),
+      body: JSON.stringify({ comparisonId: id, turnIndex, room: { url: roomUrl(id), token: signPublishToken(id) } }),
     });
     if (!response.ok) throw new Error(`The worker answered ${response.status}.`);
   } catch (error) {

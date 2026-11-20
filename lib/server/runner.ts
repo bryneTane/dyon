@@ -10,9 +10,8 @@ import { errorText } from "@/lib/domain/text";
 import { createStepClock } from "@/lib/domain/timing";
 import type { CompetitorSpec } from "@/lib/domain/catalog";
 import { countActions, turnCost, turnTokens } from "@/lib/domain/metrics";
-import type { HistoryEntry, RunState, RunTurnResult, StreamEvent, TimelineItem } from "@/lib/domain/types";
+import type { HistoryEntry, LiveEvent, RunState, RunTurnResult, StreamEvent, TimelineItem } from "@/lib/domain/types";
 import { workDir } from "./config";
-import { publish } from "./events";
 import { store } from "./store";
 import { createWorkspace, markTurnStart, openWorkspace, runCheck, workspaceDiff, type Workspace } from "./workspace";
 
@@ -40,7 +39,11 @@ export async function stopAllTurns(reason: string): Promise<void> {
  * saved at most every second, at every sign of life (every 5 s, which also reads a stop request), and before
  * the turn's last event.
  */
-export async function runTurn(comparisonId: string, turnIndex: number): Promise<void> {
+export async function runTurn(
+  comparisonId: string,
+  turnIndex: number,
+  publish: (event: LiveEvent) => void,
+): Promise<void> {
   const db = await store();
   let record = await db.get(comparisonId);
   if (!record) return;
@@ -71,7 +74,7 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
     record = { ...applyEvent(record!, event), seq };
     // The saved record is idle before tabs learn the turn is over, so a follow-up sent at once is accepted.
     if (event.type === "turn_done" || Date.now() - lastSave >= SAVE_EVERY_MS) save();
-    publish(comparisonId, { seq, event });
+    publish({ seq, event });
   };
   const beat = () => {
     const now = new Date().toISOString();

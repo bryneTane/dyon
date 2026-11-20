@@ -7,6 +7,7 @@ Send the same coding task to Claude Code and Codex, watch both work side by side
 - Node.js 22.13 or newer
 - git (each workspace is a git repository, used to compute what a turn changed)
 - An Anthropic API key and an OpenAI API key
+- Ports 3000, 3001 and 3002 free on your machine (web app, worker, live relay)
 
 ## Run it locally
 
@@ -16,8 +17,8 @@ cp .env.example .env.local   # then fill in both keys
 npm run dev
 ```
 
-`npm run dev` starts two processes: the web app on http://localhost:3000 and the worker that runs the agents on
-port 3001. Checks: `npm run typecheck && npm test`.
+`npm run dev` starts three processes: the web app on http://localhost:3000, the worker that runs the agents on port
+3001, and the live relay on port 3002 (a local Cloudflare worker, through wrangler). Checks: `npm run typecheck && npm test`.
 
 A missing key does not stop the app: the runs of that agent fail at once with a message saying which key to add, and
 the other agent's runs go on.
@@ -75,13 +76,14 @@ interval.
 
 ```
 app/                 Next.js pages, API routes and components
-  api/comparisons/   create, follow-ups, stop, verdict, live events (SSE), files of a run
+  api/comparisons/   create, follow-ups, stop, verdict, files of a run
   report/[id]/       the read-only report
 lib/domain/          pure logic shared by server and browser: types, record reducer, metrics, pricing, stats
 lib/agents/          one adapter per agent, behind the AgentSession interface (claude.ts, codex.ts),
                      and the pure mappers from each SDK's events to timeline steps (*-map.ts)
-lib/server/          runner, store (SQLite locally, Postgres with DATABASE_URL), event bus, workspaces, catalog
-worker/              the worker process: runs the turns the web app hands it, streams their events
+lib/server/          runner, store (SQLite locally, Postgres with DATABASE_URL), relay tokens, workspaces, catalog
+worker/              the worker process: runs the turns the web app hands it, publishes their events
+party/               the live relay: one room per comparison, on Cloudflare
 tests/               vitest, including replays of recorded agent sessions (tests/fixtures)
 ```
 
@@ -90,8 +92,10 @@ tests/               vitest, including replays of recorded agent sessions (tests
 - The models and effort levels offered come from the agents themselves, not from a list kept in this repository.
 - Turns run in a separate worker process, never in the web app: a turn runs for minutes and executes the agents'
   commands. The web app hands it a turn; the worker reports the agents' models, saves each turn's progress and
-  streams its numbered events, which the web app passes to every open tab. A tab that misses some reloads the
-  saved state.
+  publishes its numbered events to the comparison's room on the relay, which passes them to every open tab. The
+  relay keeps nothing: a tab that misses events reloads the saved state.
+- Only the web app holds the relay's secret. It gives each tab a 10-minute token to join one room, and the worker a
+  token to publish to the room of the turn it runs.
 
 ## Known limits
 
