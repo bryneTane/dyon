@@ -129,7 +129,6 @@ export interface ComparisonInfo {
 
 /** What a run needs to continue its session on the next turn. */
 export interface RunState {
-  seedCommit: string;
   session: { sessionId: string } | { threadId: string } | null;
   cumulative: Cumulative | null;
   model: string | null;
