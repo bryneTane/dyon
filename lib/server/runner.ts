@@ -13,13 +13,27 @@ import type { HistoryEntry, RunState, RunTurnResult, StreamEvent, TimelineItem }
 import { workDir } from "./config";
 import { publish } from "./events";
 import { store } from "./store";
-import { createWorkspace, markTurnStart, openWorkspace, workspaceDiff, type Workspace } from "./workspace";
+import { createWorkspace, markTurnStart, openWorkspace, runCheck, workspaceDiff, type Workspace } from "./workspace";
 
 /** Identifies this server process, to recognize later a turn that a restart cut short. */
 export const bootId = ((globalThis as { __dyonBootId?: string }).__dyonBootId ??= randomUUID());
 
 /** How often a running turn's record is saved, so a reload never misses more than this. */
 const SAVE_EVERY_MS = 1000;
+
+/** A turn still running after this long is stopped, so a stuck agent cannot run (and spend) forever. */
+export const TURN_LIMIT_MS = 20 * 60_000;
+
+/** The running turn of each comparison, to stop it. On globalThis: every route of this process shares it. */
+const running = ((globalThis as { __dyonRunning?: Map<string, AbortController> }).__dyonRunning ??= new Map());
+
+/** Stops the comparison's running turn: every run ends "aborted" and keeps the steps it had. */
+export function stopTurn(comparisonId: string): boolean {
+  const abort = running.get(comparisonId);
+  if (!abort) return false;
+  abort.abort("Stopped by the user.");
+  return true;
+}
 
 /**
  * Runs a queued turn to its end, outside any request: closing or refreshing the page does not stop it.
@@ -34,7 +48,12 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
   const save = () => {
     lastSave = Date.now();
     const current = record!;
-    store().update(comparisonId, (saved) => ({ ...current, stopRequested: saved.stopRequested }));
+    // A verdict is only saved while no turn runs, so the saved one is always the latest.
+    store().update(comparisonId, (saved) => ({
+      ...current,
+      stopRequested: saved.stopRequested,
+      verdict: saved.verdict,
+    }));
   };
   const emit = (event: StreamEvent) => {
     const seq = record!.seq + 1;
@@ -50,78 +69,104 @@ export async function runTurn(comparisonId: string, turnIndex: number): Promise<
   };
   emit({ type: "turn_start", turnIndex, prompt: turn.prompt, startedAt: turn.startedAt });
   const abort = new AbortController();
+  running.set(comparisonId, abort);
+  const limit = setTimeout(() => abort.abort(`Stopped at the ${TURN_LIMIT_MS / 60_000}-minute limit.`), TURN_LIMIT_MS);
   const history: HistoryEntry[] = [];
-  await Promise.all(
-    record.info.runs.map(async (run) => {
-      const competitor = record!.info.competitors.find((c) => c.id === run.competitorId)!;
-      const stamp = createStepClock();
-      const item = (i: TimelineItem) => emit({ type: "item", runId: run.runId, turnIndex, item: stamp(i) });
-      const started = Date.now();
-      const saved = record!.runs[run.runId];
-      let report: TurnReport;
-      let ws: Workspace | null = null;
-      try {
-        const root = join(workDir, comparisonId, run.runId);
-        ws = turnIndex === 0 ? await createWorkspace(root) : await openWorkspace(root);
-        await markTurnStart(ws);
-        const session = openSession(ws, competitor, saved?.session ?? null);
-        report = await session.send(turn.prompt, item, abort.signal);
-        record = {
-          ...record!,
-          runs: {
-            ...record!.runs,
-            [run.runId]: {
-              session: session.state(),
-              // A turn that reported nothing keeps the previous totals, so the next turn's difference is right.
-              cumulative: report.cumulative ?? saved?.cumulative ?? null,
-              model: report.model ?? saved?.model ?? null,
-            },
-          },
-        };
-        if (report.model || report.version)
-          emit({ type: "run_meta", runId: run.runId, model: report.model, version: report.version });
-      } catch (error) {
-        report = { outcome: { status: "error", detail: errorText(error) }, cumulative: null };
-      }
-      const wallMs = Date.now() - started;
-      if (report.outcome.status === "error") item({ id: randomUUID(), kind: "error", text: report.outcome.detail });
-      const counts = countActions(record!.turns[turnIndex].items[run.runId] ?? []);
-      const before = saved?.cumulative ?? null;
-      const result: RunTurnResult = {
-        wallMs,
-        tokens: turnTokens(report.cumulative, before),
-        // Codex's web actions are not priced (see lib/domain/pricing.ts); Claude Code's are, per search.
-        cost: turnCost(report.cumulative, before, competitor.vendor === "codex" ? counts.webSearches : 0),
-        outcome: report.outcome,
-        check: null,
-        counts,
-        diff: ws ? await workspaceDiff(ws).catch(() => null) : null,
-      };
-      emit({ type: "run_done", runId: run.runId, turnIndex, result });
-      history.push({
-        at: new Date().toISOString(),
-        comparisonId,
-        turnIndex,
-        prompt: turn.prompt,
-        vendor: competitor.vendor,
-        requestedModel: competitor.model,
-        effort: competitor.effort,
-        check: record!.info.check,
-        runIndex: run.index,
-        model: record!.runs[run.runId]?.model ?? null,
-        wallMs,
-        tokens: result.tokens,
-        costUsd: result.cost.computedUsd,
-        outcome: report.outcome.status,
-        checkPassed: null,
-      });
-    }),
-  );
+  const check = record.info.check;
+  try {
+    await runs();
+  } finally {
+    clearTimeout(limit);
+    running.delete(comparisonId);
+  }
   store().appendHistory(history);
   emit({ type: "turn_done", turnIndex });
+
+  async function runs() {
+    await Promise.all(
+      record!.info.runs.map(async (run) => {
+        const competitor = record!.info.competitors.find((c) => c.id === run.competitorId)!;
+        const stamp = createStepClock();
+        const item = (i: TimelineItem) => emit({ type: "item", runId: run.runId, turnIndex, item: stamp(i) });
+        const started = Date.now();
+        const saved = record!.runs[run.runId];
+        let report: TurnReport;
+        let ws: Workspace | null = null;
+        try {
+          const root = join(workDir, comparisonId, run.runId);
+          ws = turnIndex === 0 ? await createWorkspace(root) : await openWorkspace(root);
+          await markTurnStart(ws);
+          const session = openSession(ws, competitor, saved?.session ?? null);
+          report = await session.send(turn.prompt, item, abort.signal);
+          record = {
+            ...record!,
+            runs: {
+              ...record!.runs,
+              [run.runId]: {
+                session: session.state(),
+                // A turn that reported nothing keeps the previous totals, so the next turn's difference is right.
+                cumulative: report.cumulative ?? saved?.cumulative ?? null,
+                model: report.model ?? saved?.model ?? null,
+              },
+            },
+          };
+          if (report.model || report.version)
+            emit({ type: "run_meta", runId: run.runId, model: report.model, version: report.version });
+        } catch (error) {
+          report = { outcome: { status: "error", detail: errorText(error) }, cumulative: null };
+          item({ id: randomUUID(), kind: "error", text: errorText(error) });
+        }
+        const wallMs = Date.now() - started;
+        if (report.outcome.status === "aborted") report.outcome.detail = String(abort.signal.reason ?? "Stopped.");
+        // The check runs after the agent's turn, in its workspace; the agent never sees the command or its result.
+        const ran = check && ws && !abort.signal.aborted ? await runCheck(ws, check, abort.signal) : null;
+        // A check cut short by a stop says nothing about the work: not kept.
+        const checked = ran && !abort.signal.aborted ? ran : null;
+        if (checked) {
+          const { output, ...rest } = checked;
+          item({ id: randomUUID(), kind: "check", ...rest, output, status: checked.passed ? "ok" : "failed" });
+        }
+        const counts = countActions(record!.turns[turnIndex].items[run.runId] ?? []);
+        const before = saved?.cumulative ?? null;
+        const result: RunTurnResult = {
+          wallMs,
+          tokens: turnTokens(report.cumulative, before),
+          // Codex's web actions are not priced (see lib/domain/pricing.ts); Claude Code's are, per search.
+          cost: turnCost(report.cumulative, before, competitor.vendor === "codex" ? counts.webSearches : 0),
+          outcome: report.outcome,
+          check: checked,
+          counts,
+          diff: ws ? await workspaceDiff(ws).catch(() => null) : null,
+        };
+        emit({ type: "run_done", runId: run.runId, turnIndex, result });
+        history.push({
+          at: new Date().toISOString(),
+          comparisonId,
+          turnIndex,
+          prompt: turn.prompt,
+          vendor: competitor.vendor,
+          requestedModel: competitor.model,
+          effort: competitor.effort,
+          check: record!.info.check,
+          runIndex: run.index,
+          model: record!.runs[run.runId]?.model ?? null,
+          wallMs,
+          tokens: result.tokens,
+          costUsd: result.cost.computedUsd,
+          outcome: report.outcome.status,
+          checkPassed: checked ? checked.passed : null,
+        });
+      }),
+    );
+  }
 }
 
+/** The key each agent needs, read from `.env.local`. */
+const KEYS = { claude: "ANTHROPIC_API_KEY", codex: "OPENAI_API_KEY" } as const;
+
 function openSession(ws: Workspace, spec: CompetitorSpec, session: RunState["session"]): AgentSession {
+  // Fails this run at once, with what to do; the other runs go on.
+  if (!process.env[KEYS[spec.vendor]]) throw new Error(`Add ${KEYS[spec.vendor]} to .env.local, then restart Dyon.`);
   switch (spec.vendor) {
     case "claude":
       return createClaudeSession(ws, spec, session && "sessionId" in session ? session.sessionId : undefined);

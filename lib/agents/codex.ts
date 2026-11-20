@@ -35,7 +35,7 @@ export function codexThreadOptions(ws: Workspace, spec: CompetitorSpec): ThreadO
     model: spec.model,
     // Checked against the efforts this model reports (lib/domain/catalog.ts) before a run starts.
     ...(spec.effort ? { modelReasoningEffort: spec.effort as ModelReasoningEffort } : {}),
-    // Workspaces are plain folders, not git repositories.
+    // Each workspace is a git repository already; this only spares Codex the check.
     skipGitRepoCheck: true,
     // Runs unattended, like any automated use: no approval prompts.
     approvalPolicy: "never",

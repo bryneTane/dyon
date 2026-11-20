@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { followEvent } from "@/lib/domain/record";
-import type { ComparisonRecord, LiveEvent, RunTurnResult, TimelineItem, TurnRecord } from "@/lib/domain/types";
+import type { ComparisonRecord, LiveEvent, RunTurnResult, TimelineItem, TurnRecord, Verdict } from "@/lib/domain/types";
 
 /** The runner saves at least every second: after a gap, the saved record has caught up by then. */
 const RELOAD_AFTER_GAP_MS = 1200;
@@ -93,7 +93,21 @@ export function useComparison() {
     setError(null);
   }, []);
 
-  return { record, error, setError, open, reset };
+  /** Records the user's verdict; the names of a blind comparison are revealed once it is saved. */
+  const saveVerdict = useCallback(async (winner: string, note: string) => {
+    const id = current.current?.info.id;
+    if (!id) return;
+    const response = await fetch(`/api/comparisons/${id}/verdict`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ winner, note }),
+    });
+    const body = (await response.json().catch(() => null)) as { verdict?: Verdict; error?: string } | null;
+    if (!response.ok || !body?.verdict) throw new Error(body?.error ?? `HTTP ${response.status}`);
+    if (current.current?.info.id === id) show({ ...current.current, verdict: body.verdict });
+  }, []);
+
+  return { record, error, setError, open, reset, saveVerdict };
 }
 
 /** One turn as the interface shows it. */

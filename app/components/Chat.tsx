@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Plus } from "lucide-react";
+import { ArrowUp, ChartColumn, EyeOff, FileText, FlaskConical, Plus, RotateCcw, Square } from "lucide-react";
 import { CompetitorPicker } from "./CompetitorPicker";
 import {
   defaultCompetitors,
@@ -11,35 +11,13 @@ import {
   type Catalog,
   type CompetitorSpec,
 } from "@/lib/domain/catalog";
-import { CatalogProvider } from "./naming";
+import { EXAMPLES } from "./examples";
+import { CatalogProvider, NamesHidden } from "./naming";
+import { Scoreboard, type TaskSetup } from "./Scoreboard";
+import { VerdictBox } from "./VerdictBox";
 import { turnView, useComparison } from "./useComparison";
 import { TurnBlock, type InspectTarget } from "./TurnBlock";
 import { Inspector } from "./Inspector";
-
-/**
- * Tasks offered on the empty screen, one per kind of task public comparisons of coding agents use:
- * building a small app or game, implementing an algorithm to a precise spec, and fixing bugs in existing code.
- */
-const EXAMPLES = [
-  {
-    title: "A mini game",
-    summary: "A Snake game in one HTML file.",
-    prompt:
-      "Create a tiny Snake game in a single index.html file, with no dependencies and no external files. Arrow keys move the snake, eating food grows it by one and adds a point, hitting a wall or itself ends the game, and Space restarts. Show the score.",
-  },
-  {
-    title: "An algorithm",
-    summary: "Earliest arrival through a train timetable, with transfers.",
-    prompt:
-      'Create journey.js, a Node.js module with no dependencies, exporting earliestArrival(connections, from, to, departAt).\n\nconnections is an array of { trip, from, to, dep, arr }: a train of trip trip leaves station from at dep and reaches station to at arr. Times are "HH:MM" strings within one day, and dep < arr.\n\nA traveller is at station from at time departAt. They may board a connection that leaves their current station at or after the time they are there. Staying on the same trip needs no time; changing to another trip needs at least 5 minutes at the station (the first boarding needs none).\n\nReturn { arrival, trips }: the earliest possible arrival time at station to, as "HH:MM", and the number of distinct trips used. When several journeys reach to at that earliest time, return the smallest number of trips. Return null when to cannot be reached. When from equals to, return { arrival: departAt, trips: 0 }.\n\nIt must stay fast: 50,000 connections must be handled in well under a second.',
-  },
-  {
-    title: "Fix a bug",
-    summary: "Find and fix the bugs in a shopping cart total.",
-    prompt:
-      'Create cart.js with exactly this code:\n\n```js\nexport function cartTotal(items, coupon) {\n  items.sort((a, b) => b.price - a.price);\n  let subtotal = 0;\n  for (const item of items) {\n    let line = item.price * item.qty;\n    if (item.qty > 10) line = line * 0.95;\n    subtotal += line;\n  }\n  const shipping = subtotal >= 5000 ? 0 : 499;\n  if (coupon === "SAVE10") subtotal = subtotal * 0.9;\n  if (coupon === "FREESHIP") return Math.round(subtotal);\n  return Math.round(subtotal + shipping);\n}\n```\n\nCustomers report wrong totals. Fix the bugs so that cartTotal follows these rules, keeping the same export and signature:\n\n- items is an array of { price, qty }: price in integer cents, qty an integer of at least 1. The result is the total in integer cents.\n- A line of 10 or more units gets 5% off that line, rounded to the nearest cent, halves rounded up.\n- The coupon SAVE10 takes 10% off the sum of the lines, rounded to the nearest cent, halves rounded up.\n- Shipping costs 499 cents, and is free when the sum after all discounts is at least 5000 cents. The coupon FREESHIP makes shipping free.\n- Coupon codes are case-insensitive. No coupon is null or undefined. Any other coupon throws an Error with the message "unknown coupon".\n- cartTotal must not modify its arguments.',
-  },
-];
 
 /** Textarea that grows with its content, up to a limit. */
 function useAutoHeight(value: string) {
@@ -63,13 +41,20 @@ export function Chat() {
   const [inspect, setInspect] = useState<InspectTarget | null>(null);
   // Null until the user changes them: then each agent's own default model.
   const [picked, setPicked] = useState<CompetitorSpec[] | null>(null);
-  const { record, error, setError, open, reset } = useComparison();
+  const [repeats, setRepeats] = useState(1);
+  const [check, setCheck] = useState("");
+  const [checkOpen, setCheckOpen] = useState(false);
+  const [blind, setBlind] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [showScoreboard, setShowScoreboard] = useState(false);
+  const { record, error, setError, open, reset, saveVerdict } = useComparison();
   const textareaRef = useAutoHeight(prompt);
   const endRef = useRef<HTMLDivElement>(null);
   const running = sending || record?.status === "busy";
   const started = Boolean(record);
   const comparison = record?.info ?? null;
   const turns = record?.turns.map(turnView) ?? [];
+  if (!running && stopping) setStopping(false);
 
   // After a refresh or on an opened link, show the latest turn side by side, as right after sending.
   const openedId = record?.info.id;
@@ -129,7 +114,13 @@ export function Chat() {
       const response = await fetch("/api/comparisons", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt.trim(), competitors: chosen }),
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          competitors: chosen,
+          repeats,
+          check: checkOpen ? check : null,
+          blind,
+        }),
       });
       const body = (await response.json().catch(() => null)) as { id?: string; error?: string } | null;
       if (!response.ok || !body?.id) return setError(body?.error ?? `HTTP ${response.status}`);
@@ -143,6 +134,42 @@ export function Chat() {
       setSending(false);
     }
   }
+
+  /** Every run of the turn ends "stopped", keeping the steps it had. */
+  async function stop() {
+    if (!record) return;
+    setStopping(true);
+    const response = await fetch(`/api/comparisons/${record.info.id}/stop`, { method: "POST" }).catch(() => null);
+    if (!response?.ok) {
+      setStopping(false);
+      setError("Could not stop the turn. Try again.");
+    }
+  }
+
+  /** Same task and check, ready to run again; competitors and options stay editable. */
+  function prefill(task: TaskSetup & { blind?: boolean; competitors?: CompetitorSpec[]; repeats?: number }) {
+    reset();
+    setInspect(null);
+    setPrompt(task.prompt);
+    setCheck(task.check ?? "");
+    setCheckOpen(Boolean(task.check));
+    if (task.blind !== undefined) setBlind(task.blind);
+    if (task.competitors) setPicked(task.competitors);
+    if (task.repeats) setRepeats(task.repeats);
+  }
+
+  function runAgain() {
+    if (!comparison || !record?.turns[0]) return;
+    prefill({
+      prompt: record.turns[0].prompt,
+      check: comparison.check,
+      blind: comparison.blind,
+      repeats: comparison.repeats,
+      competitors: comparison.competitors.map(({ vendor, model, effort }) => ({ vendor, model, effort })),
+    });
+  }
+
+  const runsTotal = competitors.length * repeats;
 
   function newComparison() {
     reset();
@@ -172,91 +199,191 @@ export function Chat() {
               : "Send a follow-up to every agent…"
         }
       />
+      {!started && checkOpen && (
+        <div className="check-row">
+          <FlaskConical size={14} className="muted" />
+          <textarea
+            className="check-input"
+            rows={Math.min(6, Math.max(1, check.split("\n").length))}
+            placeholder="Check command, e.g. npm test. Runs in each workspace after each turn; exit 0 = pass. The agents never see it."
+            value={check}
+            onChange={(e) => setCheck(e.target.value)}
+          />
+        </div>
+      )}
       <div className="composer-bar">
         {started && comparison ? (
           <span className="bar-summary">
             Goes to all {comparison.runs.length} runs; each keeps its session and files.
           </span>
         ) : catalog ? (
-          <CompetitorPicker catalog={catalog} value={competitors} onChange={setPicked} />
+          <>
+            <CompetitorPicker catalog={catalog} value={competitors} onChange={setPicked} />
+            <span className="bar-sep" />
+            <div
+              className="segmented"
+              title="Runs per agent. Several runs show how much results vary; each run costs as much as one."
+            >
+              {[1, 3, 5].map((n) => (
+                <button key={n} className={repeats === n ? "on" : ""} onClick={() => setRepeats(n)}>
+                  ×{n}
+                </button>
+              ))}
+            </div>
+            <button
+              className={`chip ${blind ? "on" : ""}`}
+              onClick={() => setBlind((v) => !v)}
+              aria-pressed={blind}
+              title="Hide agent names and models until you give your verdict"
+            >
+              <EyeOff size={13} /> Blind
+            </button>
+            <button
+              className={`chip ${checkOpen ? "on" : ""}`}
+              onClick={() => setCheckOpen((v) => !v)}
+              aria-pressed={checkOpen}
+              title="A command run in each workspace after each turn, never shown to the agents"
+            >
+              <FlaskConical size={13} /> Check
+            </button>
+          </>
         ) : (
           <span className="bar-summary">Loading the agents&apos; models…</span>
         )}
         <span className="spacer" />
-        {!running && !started && competitors.length > 0 && (
-          <span className="hint">{`${competitors.length} run${competitors.length > 1 ? "s" : ""}`}</span>
+        {!running && !started && runsTotal > 0 && (
+          <span className="hint">{`${runsTotal} run${runsTotal > 1 ? "s" : ""}`}</span>
         )}
-        <button className="send" onClick={() => void submit()} disabled={!canSend} title="Send (Enter)">
-          <ArrowUp size={18} />
-        </button>
+        {started && record?.status === "busy" ? (
+          <button
+            className="send stop"
+            onClick={() => void stop()}
+            disabled={stopping}
+            title={stopping ? "Stopping…" : "Stop all runs"}
+          >
+            {stopping ? <span className="spinner" /> : <Square size={13} fill="currentColor" />}
+          </button>
+        ) : (
+          <button className="send" onClick={() => void submit()} disabled={!canSend} title="Send (Enter)">
+            <ArrowUp size={18} />
+          </button>
+        )}
       </div>
     </div>
   );
 
   return (
     <CatalogProvider value={catalog ?? NO_CATALOG}>
-      <div className="app">
-        <header className="topbar">
-          <span className="wordmark">Dyon</span>
-          <span className="spacer" />
-          {started && (
-            <button className="ghost" onClick={newComparison} disabled={running}>
-              <Plus size={15} /> New comparison
+      <NamesHidden value={Boolean(comparison?.blind && !record?.verdict)}>
+        <div className="app">
+          <header className="topbar">
+            <span className="wordmark">Dyon</span>
+            <span className="spacer" />
+            <button className="ghost" onClick={() => setShowScoreboard(true)}>
+              <ChartColumn size={15} /> Scoreboard
             </button>
-          )}
-        </header>
-
-        <div className={`workspace ${inspect && comparison ? "with-inspector" : ""}`}>
-          <div className="chat-pane">
-            {!started ? (
-              <main className="welcome">
-                <h1>Compare coding agents on the same task</h1>
-                <p className="lead">
-                  Claude Code and Codex work in parallel, each in a fresh workspace. Follow every step, then compare
-                  time, tokens, cost and code.
-                </p>
-                {composer}
-                {error && <div className="error-box">{error}</div>}
-                <div className="examples-label">Or start from an example task</div>
-                <div className="examples">
-                  {EXAMPLES.map((example) => (
-                    <button key={example.title} className="example" onClick={() => setPrompt(example.prompt)}>
-                      <span className="example-title">{example.title}</span>
-                      <span className="example-summary">{example.summary}</span>
-                    </button>
-                  ))}
-                </div>
-              </main>
-            ) : (
-              <main className="thread">
-                {turns.map((turn) => (
-                  <TurnBlock
-                    key={turn.index}
-                    comparison={comparison}
-                    turn={turn}
-                    meta={record!.meta}
-                    inspect={inspect}
-                    onInspect={setInspect}
-                  />
-                ))}
-                {error && <div className="error-box">{error}</div>}
-                <div ref={endRef} />
-              </main>
+            {comparison && (
+              <a className="ghost" href={`/report/${comparison.id}`} target="_blank" rel="noreferrer">
+                <FileText size={15} /> Report
+              </a>
             )}
-            {started && <footer className="composer-dock">{composer}</footer>}
+            {comparison && (
+              <button
+                className="ghost"
+                onClick={runAgain}
+                disabled={running}
+                title="Same task and check; you can change the competitors"
+              >
+                <RotateCcw size={15} /> Run again
+              </button>
+            )}
+            {started && (
+              <button className="ghost" onClick={newComparison} disabled={running}>
+                <Plus size={15} /> New comparison
+              </button>
+            )}
+          </header>
+
+          <div className={`workspace ${inspect && comparison ? "with-inspector" : ""}`}>
+            <div className="chat-pane">
+              {!started ? (
+                <main className="welcome">
+                  <h1>Compare coding agents on the same task</h1>
+                  <p className="lead">
+                    Claude Code and Codex work in parallel, each in a fresh workspace. Follow every step, then compare
+                    time, tokens, cost and code.
+                  </p>
+                  {composer}
+                  {error && <div className="error-box">{error}</div>}
+                  <div className="examples-label">Or start from an example task</div>
+                  <div className="examples">
+                    {EXAMPLES.map((example) => (
+                      <button
+                        key={example.title}
+                        className="example"
+                        onClick={() => {
+                          setPrompt(example.prompt);
+                          setCheck(example.check ?? "");
+                          setCheckOpen(Boolean(example.check));
+                        }}
+                      >
+                        <span className="example-title">
+                          {example.title}
+                          {example.check && <span className="example-tag">hidden check</span>}
+                        </span>
+                        <span className="example-summary">{example.summary}</span>
+                      </button>
+                    ))}
+                  </div>
+                </main>
+              ) : (
+                <main className="thread">
+                  {turns.map((turn) => (
+                    <TurnBlock
+                      key={turn.index}
+                      comparison={comparison}
+                      turn={turn}
+                      meta={record!.meta}
+                      inspect={inspect}
+                      onInspect={setInspect}
+                    />
+                  ))}
+                  {comparison && !running && turns.some((t) => Object.keys(t.results).length > 0) && (
+                    <VerdictBox
+                      key={comparison.id}
+                      comparison={comparison}
+                      verdict={record!.verdict}
+                      onSave={saveVerdict}
+                    />
+                  )}
+                  {error && <div className="error-box">{error}</div>}
+                  <div ref={endRef} />
+                </main>
+              )}
+              {started && <footer className="composer-dock">{composer}</footer>}
+            </div>
+            {inspect && comparison && turns[inspect.turnIndex] && (
+              <Inspector
+                comparison={comparison}
+                turn={turns[inspect.turnIndex]}
+                meta={record!.meta}
+                target={inspect}
+                onSelect={setInspect}
+                onClose={() => setInspect(null)}
+              />
+            )}
           </div>
-          {inspect && comparison && turns[inspect.turnIndex] && (
-            <Inspector
-              comparison={comparison}
-              turn={turns[inspect.turnIndex]}
-              meta={record!.meta}
-              target={inspect}
-              onSelect={setInspect}
-              onClose={() => setInspect(null)}
-            />
-          )}
         </div>
-      </div>
+        {showScoreboard && (
+          <Scoreboard
+            onClose={() => setShowScoreboard(false)}
+            onRunAgain={(task) => {
+              setShowScoreboard(false);
+              prefill(task);
+            }}
+          />
+        )}
+      </NamesHidden>
     </CatalogProvider>
   );
 }

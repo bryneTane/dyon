@@ -4,7 +4,8 @@ import { mkdir, open, readFile, realpath, rm, stat, writeFile } from "node:fs/pr
 import { zipSync } from "fflate";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import type { DiffFile, FileContent, RunTurnResult, WorkspaceFile } from "@/lib/domain/types";
+import { clip } from "@/lib/domain/text";
+import type { CheckResult, DiffFile, FileContent, RunTurnResult, WorkspaceFile } from "@/lib/domain/types";
 
 const exec = promisify(execFile);
 // Dyon's own git calls: a fixed identity, and no hooks or settings the agent could have written.
@@ -192,4 +193,41 @@ export async function zipWorkspace(ws: Workspace): Promise<Uint8Array> {
     if (raw) entries[file.path] = new Uint8Array(raw);
   }
   return zipSync(entries, { level: 6 });
+}
+
+/**
+ * Runs the user's check command in the workspace, with the agents' minimal environment. Exit code 0 means
+ * passed. The output keeps its end, where test runners print their summary.
+ */
+export async function runCheck(
+  ws: Workspace,
+  command: string,
+  signal: AbortSignal,
+  timeoutMs = 120_000,
+): Promise<CheckResult> {
+  const started = performance.now();
+  const result = (passed: boolean, exitCode: number | null, timedOut: boolean, output: string): CheckResult => ({
+    command,
+    passed,
+    exitCode,
+    timedOut,
+    durationMs: Math.round(performance.now() - started),
+    output: clip(output.trim(), 4000, "end"),
+  });
+  try {
+    const { stdout, stderr } = await exec("bash", ["-c", command], {
+      cwd: ws.dir,
+      env: agentEnv(ws) as NodeJS.ProcessEnv,
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+      maxBuffer: 5 * 1024 * 1024,
+      signal,
+    });
+    return result(true, 0, false, stdout + stderr);
+  } catch (error) {
+    const e = error as { code?: unknown; killed?: boolean; stdout?: string; stderr?: string; message?: string };
+    const timedOut = Boolean(e.killed) && !signal.aborted;
+    const output = `${e.stdout ?? ""}${e.stderr ?? ""}` || (e.message ?? "");
+    return result(false, typeof e.code === "number" ? e.code : null, timedOut, output);
+  }
 }

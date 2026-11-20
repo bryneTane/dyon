@@ -4,7 +4,7 @@ import { z } from "zod";
 import { MAX_COMPETITORS, VENDORS } from "./catalog";
 
 export const MAX_PROMPT = 20_000;
-export const MAX_CHECK = 500;
+export const MAX_CHECK = 5_000;
 
 const prompt = z
   .string()

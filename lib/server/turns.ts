@@ -1,12 +1,24 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { isValidSpec, VENDOR_LABELS, type Catalog } from "@/lib/domain/catalog";
+import { closeInterruptedTurn } from "@/lib/domain/interrupted";
 import { newRecord, newTurn } from "@/lib/domain/record";
 import type { CreateBody } from "@/lib/domain/schemas";
 import { errorText } from "@/lib/domain/text";
-import type { ComparisonInfo } from "@/lib/domain/types";
-import { runTurn } from "./runner";
+import type { ComparisonInfo, ComparisonRecord } from "@/lib/domain/types";
+import { isId } from "./ids";
+import { bootId, runTurn } from "./runner";
 import { store } from "./store";
+
+/**
+ * The saved comparison, with any turn cut short by a server restart closed first, so the page never waits
+ * for a turn that cannot finish and a follow-up is accepted.
+ */
+export function loadRecord(id: string): ComparisonRecord | null {
+  const record = isId(id) ? store().get(id) : null;
+  if (!record || !closeInterruptedTurn(record, bootId)) return record;
+  return store().update(id, (r) => closeInterruptedTurn(r, bootId) ?? r);
+}
 
 /** Saves a new comparison with its first turn queued, starts the turn without waiting for it, returns its id. */
 export function createComparison(body: CreateBody, catalog: Catalog): { id: string } | { error: string } {
@@ -45,6 +57,7 @@ export function createComparison(body: CreateBody, catalog: Catalog): { id: stri
 export function addTurn(id: string, prompt: string): { turnIndex: number } | { error: string; status: number } {
   let turnIndex = -1;
   try {
+    if (!loadRecord(id)) return { error: "This comparison does not exist.", status: 404 };
     store().update(id, (record) => {
       if (record.status === "busy") throw new Busy();
       turnIndex = record.turns.length;

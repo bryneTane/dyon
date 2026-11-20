@@ -208,11 +208,13 @@ function Detail({ item, final }: { item: TimelineItem; final: boolean }) {
       return <Expandable className="output" text={`${item.name}\n${item.detail}`} lines={1} />;
     case "check":
       return (
-        <div className="step-title">
+        <div>
           <span className={item.passed ? "ok" : "bad"}>
             {item.passed ? "Check passed" : item.timedOut ? "Check timed out" : "Check failed"}
           </span>
-          <code className="muted small">{item.command}</code>
+          <Clamped maxHeight={40}>
+            <pre className="muted small">{item.command}</pre>
+          </Clamped>
         </div>
       );
   }
