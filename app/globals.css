@@ -290,3 +290,30 @@ pre {
   background: var(--surface);
   overflow: auto;
 }
+
+.examples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.examples p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.examples button {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.examples button:hover {
+  border-color: var(--accent);
+}
+.examples span {
+  font-size: 13px;
+  color: var(--muted);
+}
