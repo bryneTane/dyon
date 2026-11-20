@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { chownSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Codex, type ModelReasoningEffort, type ThreadOptions } from "@openai/codex-sdk";
 import type { CompetitorSpec } from "@/lib/domain/types";
@@ -20,9 +20,13 @@ export function codexClient(ws: Workspace, apiKey = process.env.OPENAI_API_KEY ?
   // Codex refuses to start when CODEX_HOME does not exist.
   const codexHome = join(ws.home, ".codex");
   mkdirSync(codexHome, { recursive: true });
+  // Hosted: created by the worker (root), used by the run's own user, through a wrapper that switches to that user.
+  if (ws.uid !== undefined) chownSync(codexHome, ws.uid, ws.uid);
+  const asOwner = ws.uid !== undefined;
   return new Codex({
     apiKey,
-    env: agentEnv(ws, { CODEX_HOME: codexHome }),
+    ...(asOwner ? { codexPathOverride: "/usr/local/bin/codex-as-run-user" } : {}),
+    env: agentEnv(ws, { CODEX_HOME: codexHome, ...(asOwner ? { DYON_RUN_UID: String(ws.uid) } : {}) }),
     // Without this, each run's Codex home grew to 97 MB (95 MB in .tmp); with it, 2.4 MB (measured 2026-11-20).
     config: { features: { plugins: false } },
   });

@@ -14,7 +14,10 @@ const execBuffer = promisify(execFile) as unknown as (
   options: { maxBuffer: number; encoding: "buffer" },
 ) => Promise<{ stdout: Buffer }>;
 // Dyon's own git calls: a fixed identity, and no hooks or settings the agent could have written.
-const GIT = ["-c", "user.name=dyon", "-c", "user.email=dyon@example.invalid", "-c", "core.hooksPath=/dev/null"];
+const GIT = [
+  ...["-c", "user.name=dyon", "-c", "user.email=dyon@example.invalid", "-c", "core.hooksPath=/dev/null"],
+  ...["-c", "core.fsmonitor=false", "-c", "safe.directory=*"],
+];
 const MAX_PATCH_CHARS = 200_000;
 
 /** One run's folders: the agent works in `dir`, with its own home and temporary folder. */
@@ -25,19 +28,54 @@ export interface Workspace {
   dirReal: string;
   home: string;
   tmp: string;
+  /**
+   * The run's own Unix user, when the worker runs as root (the hosted image): the agent, its commands, the check
+   * and Dyon's git calls in the workspace all run as this user, so they cannot read the worker's process (its
+   * environment holds the worker token) or another run's files. Undefined locally.
+   */
+  uid?: number;
 }
 
-async function workspaceAt(root: string): Promise<Workspace> {
+async function workspaceAt(root: string, uid?: number): Promise<Workspace> {
   const dir = join(root, "workspace");
   const home = join(root, "home");
-  return { root, dir, dirReal: await realpath(dir), home, tmp: join(home, "tmp") };
+  return { root, dir, dirReal: await realpath(dir), home, tmp: join(home, "tmp"), uid };
+}
+
+/**
+ * Options that make a command run as the run's own user, with a minimal environment. Every command run inside a
+ * workspace goes through this: its files were written by an agent, and git or a check run on them as root could
+ * be turned against the worker.
+ */
+function asOwner(ws: Workspace, env: Record<string, string> = {}) {
+  return ws.uid === undefined
+    ? { env: { ...process.env, ...env } }
+    : { uid: ws.uid, gid: ws.uid, env: { ...agentEnv(ws), ...env } as NodeJS.ProcessEnv };
+}
+
+/** Gives a run's folder to its user, private (0700); the folders above stay traversable but not listable. */
+async function handOver(root: string, uid: number | undefined) {
+  if (uid === undefined) return;
+  await exec("chown", ["-R", `${uid}:${uid}`, root]);
+  await exec("chmod", ["700", root]);
+  await exec("chmod", ["711", join(root, ".."), join(root, "..", "..")]);
+}
+
+/**
+ * Kills every process left by the run's user (servers or background jobs an agent started), so nothing changes
+ * the files while they are saved, and nothing outlives the run. `kill -1` as that user signals all of its
+ * processes, the shell itself included (hence the ignored error).
+ */
+export async function killRunProcesses(ws: Workspace): Promise<void> {
+  if (ws.uid === undefined) return;
+  await exec("sh", ["-c", "kill -KILL -1"], { uid: ws.uid, gid: ws.uid }).catch(() => {});
 }
 
 /**
  * Creates an empty workspace under `root`, with the run's home and temporary folder. The workspace is a git
  * repository with an empty first commit, as a real project would be.
  */
-export async function createWorkspace(root: string): Promise<Workspace> {
+export async function createWorkspace(root: string, uid?: number): Promise<Workspace> {
   const dir = join(root, "workspace");
   await rm(root, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
@@ -46,12 +84,13 @@ export async function createWorkspace(root: string): Promise<Workspace> {
   // Dependency folders stay out of the diff, through a file of git's own that the agent does not see.
   await writeFile(join(dir, ".git", "info", "exclude"), "node_modules/\n.venv/\n__pycache__/\n");
   await exec("git", [...GIT, "commit", "-q", "--allow-empty", "-m", "Start"], { cwd: dir });
-  return workspaceAt(root);
+  await handOver(root, uid);
+  return workspaceAt(root, uid);
 }
 
 /** Reopens a workspace created earlier, for the next turn. */
-export function openWorkspace(root: string): Promise<Workspace> {
-  return workspaceAt(root);
+export function openWorkspace(root: string, uid?: number): Promise<Workspace> {
+  return workspaceAt(root, uid);
 }
 
 /** Workspace and agent home as one gzip tar: git history, agent sessions and dependencies included. */
@@ -66,7 +105,7 @@ export async function archiveRoot(root: string): Promise<Buffer> {
 }
 
 /** Replaces `root` with the content of an archive made by archiveRoot. */
-export async function restoreRoot(root: string, archive: Buffer): Promise<void> {
+export async function restoreRoot(root: string, archive: Buffer, uid?: number): Promise<void> {
   await rm(root, { recursive: true, force: true });
   await mkdir(root, { recursive: true });
   const file = `${root}.restore.tgz`;
@@ -77,6 +116,7 @@ export async function restoreRoot(root: string, archive: Buffer): Promise<void> 
     await rm(file, { force: true });
   }
   await mkdir(join(root, "home", "tmp"), { recursive: true });
+  await handOver(root, uid);
 }
 
 /**
@@ -132,7 +172,7 @@ export function agentEnv(ws: Workspace, extra: Record<string, string> = {}): Rec
 /** Stages the whole workspace in Dyon's own index, so the agent's `git status` and staging area stay untouched. */
 async function stageAll(ws: Workspace) {
   const index = join(ws.root, "dyon-index");
-  const options = { cwd: ws.dir, maxBuffer: 50 * 1024 * 1024, env: { ...process.env, GIT_INDEX_FILE: index } };
+  const options = { cwd: ws.dir, maxBuffer: 50 * 1024 * 1024, ...asOwner(ws, { GIT_INDEX_FILE: index }) };
   await rm(index, { force: true });
   await exec("git", [...GIT, "add", "-A"], options);
   return { options, done: () => rm(index, { force: true }) };
@@ -188,6 +228,7 @@ export async function listFiles(ws: Workspace): Promise<WorkspaceFile[]> {
   const { stdout } = await exec("git", [...GIT, "ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
     cwd: ws.dir,
     maxBuffer: 20 * 1024 * 1024,
+    ...asOwner(ws),
   });
   const changed = new Map((await workspaceDiff(ws).catch(() => null))?.files.map((f) => [f.path, f]) ?? []);
   const paths = [...new Set(stdout.split("\0").filter(Boolean))].sort();
@@ -276,6 +317,8 @@ export async function runCheck(
     const { stdout, stderr } = await exec("bash", ["-c", command], {
       cwd: ws.dir,
       env: agentEnv(ws) as NodeJS.ProcessEnv,
+      // The check is code given by the user: never run as root.
+      ...(ws.uid === undefined ? {} : { uid: ws.uid, gid: ws.uid }),
       timeout: timeoutMs,
       killSignal: "SIGKILL",
       maxBuffer: 5 * 1024 * 1024,

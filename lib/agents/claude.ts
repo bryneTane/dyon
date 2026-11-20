@@ -1,7 +1,8 @@
 import "server-only";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { query, type EffortLevel, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { query, type EffortLevel, type Options, type SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 import type { CompetitorSpec } from "@/lib/domain/types";
 import { errorText } from "@/lib/domain/text";
 import { agentEnv, relativePath, type Workspace } from "@/lib/server/workspace";
@@ -29,6 +30,33 @@ export function claudeOptions(
     allowDangerouslySkipPermissions: true,
     maxTurns: 50,
     maxBudgetUsd: 5,
+    // Hosted: Claude Code's own sandbox (bubblewrap on Linux) around the agent's commands: writes limited to the
+    // workspace and the temporary folder, the API key removed from every command's environment. Never unsandboxed
+    // by surprise. Codex has its own (workspace-write).
+    ...(process.env.DYON_CLAUDE_SANDBOX === "1"
+      ? {
+          sandbox: {
+            enabled: true,
+            failIfUnavailable: true,
+            allowUnsandboxedCommands: false,
+            credentials: { envVars: [{ name: "ANTHROPIC_API_KEY", mode: "deny" as const }] },
+          },
+        }
+      : {}),
+    // Hosted: started as the run's own Unix user (see Workspace.uid).
+    ...(ws.uid === undefined
+      ? {}
+      : {
+          spawnClaudeCodeProcess: ({ command, args, cwd, env, signal }: SpawnOptions) =>
+            spawn(command, args, {
+              cwd,
+              env: env as NodeJS.ProcessEnv,
+              signal,
+              uid: ws.uid,
+              gid: ws.uid,
+              stdio: ["pipe", "pipe", "inherit"],
+            }),
+        }),
     env: agentEnv(ws, {
       ANTHROPIC_API_KEY: apiKey,
       // Where Claude Code keeps its configuration and transcripts (named in the SDK's own type docs): one per run.

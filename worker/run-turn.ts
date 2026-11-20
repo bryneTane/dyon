@@ -25,6 +25,7 @@ import { createPublisher } from "@/lib/server/realtime";
 import {
   archiveRoot,
   createWorkspace,
+  killRunProcesses,
   markTurnStart,
   openWorkspace,
   restoreRoot,
@@ -56,6 +57,16 @@ export async function stopAllTurns(reason: string): Promise<void> {
 
 /** Fixed path of a run's files: the same on every worker, so a restored Claude Code session finds its folder. */
 const runRoot = (comparisonId: string, runId: string) => join(workDir, comparisonId, runId);
+
+/**
+ * The run's own Unix user when the worker runs as root (the hosted image creates them): one per run of a turn, so
+ * agents cannot read the worker's process or each other's files. Undefined locally.
+ */
+function runUid(record: ComparisonRecord, runId: string): number | undefined {
+  const base = Number(process.env.DYON_AGENT_UID_BASE);
+  if (!base || process.getuid?.() !== 0) return undefined;
+  return base + record.info.runs.findIndex((r) => r.runId === runId);
+}
 
 /**
  * Runs the queued turn of a comparison, through the web app's API: every run in parallel, live events to the
@@ -176,6 +187,8 @@ export async function runTurnJob(api: WorkerApi): Promise<void> {
       const { output, ...rest } = checked;
       item({ id: randomUUID(), kind: "check", ...rest, output, status: checked.passed ? "ok" : "failed" });
     }
+    // Nothing the agent started keeps running, or changes the files while they are saved.
+    if (ws) await killRunProcesses(ws);
     const counts = countActions(turn().items[runId] ?? []);
     const diff = ws ? await workspaceDiff(ws).catch(() => null) : null;
     // The run's files and agent session, so the next turn, the Files tab and the report work from any machine.
@@ -232,18 +245,19 @@ async function prepare(api: WorkerApi, record: ComparisonRecord, runId: string):
   const root = runRoot(record.info.id, runId);
   const marker = join(root, ".dyon-archive");
   const archive = record.runs[runId]?.archive;
+  const uid = runUid(record, runId);
   let ws: Workspace;
   if (!archive) {
-    ws = await createWorkspace(root);
+    ws = await createWorkspace(root, uid);
     await saveRun(api, record.info.id, runId, -1, ws);
   } else {
     const local = existsSync(marker) ? await readFile(marker, "utf8").catch(() => "") : "";
     if (local !== archive.key) {
       const data = await api.getBlob(archive.key);
       if (!data) throw new Error("The saved files of this run are missing.");
-      await restoreRoot(root, data);
+      await restoreRoot(root, data, uid);
     }
-    ws = await openWorkspace(root);
+    ws = await openWorkspace(root, uid);
   }
   await rm(marker, { force: true });
   return ws;
